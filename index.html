@@ -285,6 +285,12 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
 .cat-list button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 2px; border-bottom: 1px solid var(--line); text-align: left; }
 .cat-list button[aria-pressed="true"] { color: var(--accent); font-weight: 600; }
 .cat-tip { flex: none; font-size: 12px; color: var(--muted); font-weight: 400; }
+
+/* Keng ekranda (kompyuter brauzeri) ilova telefon kengligida, oʻrtada turadi */
+@media (min-width: 700px) {
+  .app { max-width: 520px; margin-inline: auto; border-inline: 1px solid var(--line); }
+  .sheet { max-width: 520px; margin-inline: auto; }
+}
 </style>
 </head>
 <body>
@@ -358,7 +364,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
 
   /* ===== SOZLAMA =====
      Apps Script Web App manzili (…/exec bilan tugaydi). Boʻsh qolsa, ilova namuna rejimida ishlaydi. */
-  var API_URL = '';
+  var API_URL = 'https://script.google.com/macros/s/AKfycbyDNMFKNOJB5HvsJBB8B-7mjAga8PXLiVil3_vW9uw8761tszuTDC7wjMUZfJnJONRV/exec';
 
   var USD_WALLETS = ['Cash dollar', 'Visa', 'Master card'];
   var EXCHANGE = 'Exchange';
