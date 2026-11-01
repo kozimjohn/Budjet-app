@@ -1,0 +1,1588 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<title>Personal Budjet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&display=swap">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+/* Layout: mode switch on top · scrolling form (wallets, amount, category, date, recent) · keypad docked at the bottom.
+   The accent colour follows the entry type: rust = chiqim, green = kirim, blue = almashtirish. */
+:root {
+  --bg: #EEF1EF;
+  --surface: #FFFFFF;
+  --sunken: #E3E8E5;
+  --ink: #15201C;
+  --muted: #5B6863;
+  --line: #D6DDD9;
+  --out: #B3431D;
+  --in: #1C774A;
+  --ex: #2B57B0;
+  --accent: var(--out);
+  --on-accent: #FFFFFF;
+  /* Rejim rangi ekran tepasida yengil fon boʻlib turadi */
+  --wash-out: #F6E7DE; --wash-in: #E0EFE6; --wash-ex: #E2E8F6;
+  --wash: var(--wash-out);
+  /* Har bir hamyonning oʻz rangi (hamma joyda bir xil) */
+  --w-cash-sum: #1D7A66; --w-card-sum: #3A62B5; --w-cash-usd: #5F7D1D; --w-visa: #2E3F92; --w-master: #BF561C;
+  --danger: #B42318;
+  --on-danger: #FFFFFF;
+  --toast: #15201C;
+  --on-toast: #EEF1EF;
+  --font: "Onest", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Roboto Mono", Menlo, monospace;
+  --gut-l: max(16px, env(safe-area-inset-left, 0px));
+  --gut-r: max(16px, env(safe-area-inset-right, 0px));
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0D1210; --surface: #161D1A; --sunken: #1F2724; --ink: #E6ECE9; --muted: #92A09A; --line: #28322E;
+    --out: #EE7A4E; --in: #4CC189; --ex: #82A4F3; --on-accent: #0D1210;
+    --danger: #F97066; --on-danger: #0D1210; --toast: #E6ECE9; --on-toast: #0D1210;
+    --wash-out: #2B1C15; --wash-in: #12271C; --wash-ex: #172037;
+    --w-cash-sum: #4CC0A4; --w-card-sum: #86A6F2; --w-cash-usd: #AAC867; --w-visa: #96A3F2; --w-master: #F08C58;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0D1210; --surface: #161D1A; --sunken: #1F2724; --ink: #E6ECE9; --muted: #92A09A; --line: #28322E;
+  --out: #EE7A4E; --in: #4CC189; --ex: #82A4F3; --on-accent: #0D1210;
+  --danger: #F97066; --on-danger: #0D1210; --toast: #E6ECE9; --on-toast: #0D1210;
+  --wash-out: #2B1C15; --wash-in: #12271C; --wash-ex: #172037;
+  --w-cash-sum: #4CC0A4; --w-card-sum: #86A6F2; --w-cash-usd: #AAC867; --w-visa: #96A3F2; --w-master: #F08C58;
+  color-scheme: dark;
+}
+body[data-mode="out"] { --wash: var(--wash-out); }
+body[data-mode="in"] { --accent: var(--in); --wash: var(--wash-in); }
+body[data-mode="ex"] { --accent: var(--ex); --wash: var(--wash-ex); }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.4 var(--font); -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none; -webkit-user-select: none; user-select: none;
+}
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+button:focus-visible, input:focus-visible, label:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; user-select: text; }
+
+.app { height: 100%; display: flex; flex-direction: column; position: relative;
+  background: var(--bg); background: linear-gradient(180deg, var(--wash) 0, var(--wash) 56px, var(--bg) 340px); transition: background .25s; }
+
+/* top */
+.top { flex: none; padding-block: 10px 6px; padding-left: var(--gut-l); padding-right: var(--gut-r); }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; border-radius: 12px;
+  background: var(--sunken); background: color-mix(in srgb, var(--accent) 10%, var(--sunken)); }
+.seg button { height: 36px; border-radius: 9px; font-weight: 600; font-size: 14px; color: var(--muted); transition: background .15s, color .15s; }
+.seg button[aria-selected="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 2px rgb(0 0 0 / .08); }
+.demo { margin-top: 6px; font-size: 12px; color: var(--muted); text-align: center; }
+.demo b { color: var(--ink); font-weight: 600; }
+
+/* scroll area */
+.scroll {
+  flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding-block: 6px 18px; padding-left: var(--gut-l); padding-right: var(--gut-r);
+}
+.form { display: flex; flex-direction: column; gap: 16px; }
+.lbl-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.lbl { font-size: 11.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.link { font-size: 13px; font-weight: 600; color: var(--accent); }
+
+/* wallets */
+.hscroll {
+  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+  margin-left: calc(-1 * var(--gut-l)); margin-right: calc(-1 * var(--gut-r));
+  padding-left: var(--gut-l); padding-right: var(--gut-r); padding-block: 1px;
+}
+.hscroll::-webkit-scrollbar { display: none; }
+.wallet {
+  --wc: var(--muted);
+  flex: none; min-width: 108px; display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  padding: 8px 12px; border-radius: 12px; text-align: left; border: 1px solid var(--line);
+  background: var(--surface); background: color-mix(in srgb, var(--wc) 5%, var(--surface));
+}
+.wallet .w-name { font-size: 12px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.wallet .w-name::before, .wdot { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--wc); margin-right: 6px; vertical-align: 1px; }
+.wallet .w-bal { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wallet .w-bal.neg { color: var(--danger); }
+.wallet[aria-pressed="true"] { border-color: var(--wc); box-shadow: inset 0 0 0 1px var(--wc);
+  background: color-mix(in srgb, var(--wc) 12%, var(--surface)); }
+.wallet[aria-pressed="true"] .w-name { color: var(--wc); }
+.wallet:disabled { opacity: .38; cursor: default; }
+.ex-rows { display: flex; flex-direction: column; gap: 6px; }
+.ex-row-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.swap { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; color: var(--accent); }
+.swap svg { width: 16px; height: 16px; }
+
+/* amount */
+.amount { padding: 12px 16px 12px; border-radius: 16px; border: 1px solid var(--line);
+  background: var(--surface); background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--line)); }
+.amount .amt-cur, .f-val .amt-cur { color: var(--accent); }
+.amt { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 6px; min-height: 48px;
+  font-size: 40px; line-height: 1.15; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.amt.long { font-size: 28px; min-height: 48px; }
+.amt.empty .amt-val { color: var(--muted); opacity: .55; }
+.amt-cur { font-size: 18px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+.caret { display: inline-block; width: 2px; height: .9em; background: var(--accent); align-self: center; animation: blink 1.1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .caret { animation: none; } .seg button, .app { transition: none; } }
+.amt-hint { display: flex; flex-wrap: wrap; column-gap: 10px; font-size: 13px; color: var(--muted); min-height: 18px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.amt-hint b { font-weight: 600; color: var(--ink); }
+
+.ex-fields { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 8px; }
+.ex-fields.single { grid-template-columns: 1fr; }
+.field { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; padding: 10px 12px; text-align: left;
+  border-radius: 14px; border: 1px solid var(--line);
+  background: var(--surface); background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
+.field[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.f-lbl { font-size: 12px; font-weight: 500; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.f-val { display: flex; align-items: baseline; gap: 4px; font-size: 26px; font-weight: 700; letter-spacing: -.01em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.f-val.empty { color: var(--muted); opacity: .55; }
+.f-val .amt-cur { font-size: 14px; }
+.ex-out { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-top: 8px; padding: 10px 12px;
+  border-radius: 12px; font-size: 13px; color: var(--muted);
+  background: var(--sunken); background: color-mix(in srgb, var(--accent) 11%, var(--surface)); }
+.ex-out b { font-size: 17px; color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* chips */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; max-width: 100%;
+  border-radius: 999px; background: var(--surface); border: 1px solid var(--line);
+  font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.chip.sm { height: 34px; padding: 0 12px; font-size: 13.5px; }
+.chip svg { width: 15px; height: 15px; flex: none; }
+.chip input[type="date"] { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+
+.meta { display: flex; flex-direction: column; gap: 10px; }
+.note { width: 100%; height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font-size: 16px; }
+.note::placeholder { color: var(--muted); }
+
+/* recent */
+.recent { list-style: none; margin: 0; padding: 0; }
+.rec { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.rec:first-child { border-top: 0; }
+.rec[data-kind="out"] { --k: var(--out); }
+.rec[data-kind="in"] { --k: var(--in); }
+.rec[data-kind="ex"] { --k: var(--ex); }
+.dot { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: var(--k);
+  background: var(--sunken); background: color-mix(in srgb, var(--k) 14%, transparent); }
+.dot svg { width: 15px; height: 15px; }
+.rec-main { min-width: 0; }
+.rec-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rec-sub { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rec-amt { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+.rec[data-kind="in"] .rec-amt { color: var(--in); }
+.rec .undo { display: block; margin-top: 2px; font-size: 13px; font-weight: 600; color: var(--accent); }
+.rec.fresh { animation: fresh 1.2s ease-out; }
+@keyframes fresh { from { background: color-mix(in srgb, var(--accent) 12%, transparent); } to { background: transparent; } }
+.empty-note { margin: 0; color: var(--muted); font-size: 13px; }
+
+.state { padding: 48px 8px; text-align: center; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.state strong { color: var(--ink); font-size: 16px; }
+.state button { height: 40px; padding: 0 18px; border-radius: 12px; background: var(--accent); color: var(--on-accent); font-weight: 600; }
+
+/* dock */
+.dock { flex: none; position: relative; background: var(--surface); border-top: 1px solid var(--line);
+  padding-block: 8px calc(8px + env(safe-area-inset-bottom, 0px)); padding-left: var(--gut-l); padding-right: var(--gut-r); }
+.keypad { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.keypad button { height: 48px; border-radius: 12px; background: var(--sunken); font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums;
+  display: grid; place-items: center; transition: transform .06s; }
+.keypad button:active { transform: scale(.96); background: var(--line); }
+.keypad .op { font-size: 17px; color: var(--accent); background: color-mix(in srgb, var(--accent) 11%, var(--sunken)); }
+.keypad .wide { grid-column: span 2; }
+.keypad button:disabled { opacity: .3; }
+.keypad svg { width: 24px; height: 24px; }
+.save { margin-top: 8px; width: 100%; height: 50px; border-radius: 14px; background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: 16px; }
+.save:disabled { background: var(--sunken); color: var(--muted); cursor: default; }
+@media (max-height: 640px) {
+  .keypad button { height: 42px; }
+  .amt { font-size: 34px; min-height: 40px; }
+  .form { gap: 12px; }
+}
+
+.toast {
+  position: absolute; left: var(--gut-l); right: var(--gut-r); bottom: calc(100% + 10px); z-index: 5;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 11px 14px; border-radius: 12px; background: var(--toast); color: var(--on-toast); font-size: 14px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / .18);
+}
+.toast.error { background: var(--danger); color: var(--on-danger); }
+.toast span { min-width: 0; }
+.toast button { flex: none; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; color: inherit; }
+
+/* voice */
+.top-row { display: flex; align-items: center; gap: 8px; }
+.top-row .seg { flex: 1; min-width: 0; }
+.mic-btn { flex: none; width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
+  background: var(--accent); color: var(--on-accent); }
+.mic-btn svg { width: 22px; height: 22px; }
+.mic-btn:disabled { background: var(--sunken); color: var(--muted); }
+.pending { margin-top: 8px; width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 9px 12px; border-radius: 10px; background: var(--sunken); font-size: 13px; font-weight: 600; text-align: left; }
+.pending span:last-child { color: var(--accent); }
+.voice-body { display: flex; flex-direction: column; align-items: center; gap: 12px; min-height: 0; flex: 1 1 auto; overflow-y: auto;
+  text-align: center; padding-top: 4px; }
+.cmd-out { width: 100%; display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
+.orb { position: relative; width: 104px; height: 104px; margin-top: 10px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent); color: var(--on-accent); }
+.orb svg { width: 40px; height: 40px; }
+.orb::before { content: ""; position: absolute; inset: -12px; border-radius: 50%; border: 3px solid var(--accent); opacity: .35;
+  transform: scale(var(--lvl, 1)); transition: transform .08s linear; }
+.timer { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.voice-hint { margin: 0; max-width: 34ch; font-size: 13px; color: var(--muted); }
+.voice-hint q, .voice-hint b { color: var(--ink); font-weight: 500; }
+.voice-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+.btn { height: 48px; border-radius: 14px; background: var(--sunken); font-weight: 700; font-size: 15px; }
+.btn.primary { background: var(--accent); color: var(--on-accent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.spinner { width: 42px; height: 42px; margin-top: 18px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent);
+  animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } .orb::before { transition: none; } }
+.voice-body strong { font-size: 16px; }
+.transcript { width: 100%; margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--sunken); text-align: left; font-size: 14px; }
+.transcript::before { content: "«"; } .transcript::after { content: "»"; }
+.v-list { width: 100%; list-style: none; margin: 0; padding: 0; overflow-y: auto; min-height: 0; text-align: left; }
+.rec.v { grid-template-columns: 30px minmax(0, 1fr) auto 30px; cursor: pointer; }
+.rec.v.nox { grid-template-columns: 30px minmax(0, 1fr) auto; }
+.rec .x { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); }
+.rec .x svg { width: 16px; height: 16px; }
+.miss { color: var(--danger); font-weight: 600; }
+.v-tip { margin: 0; width: 100%; font-size: 12.5px; color: var(--muted); text-align: left; }
+.cmd { width: 100%; display: flex; flex-direction: column; gap: 8px; text-align: left; }
+.cmd textarea { width: 100%; min-height: 76px; resize: none; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line);
+  background: var(--bg); font: inherit; font-size: 17px; line-height: 1.35; }
+.cmd textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
+.examples { width: 100%; display: flex; flex-wrap: wrap; gap: 6px; }
+.examples .chip { height: 32px; font-size: 13px; color: var(--muted); }
+.rec-mic { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; }
+.rec-mic svg { width: 20px; height: 20px; }
+.linkish { font-size: 14px; font-weight: 600; color: var(--accent); padding: 6px 4px; }
+
+/* category sheet */
+.sheet-bg { position: fixed; inset: 0; z-index: 20; background: rgb(0 0 0 / .4); }
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; max-height: 82%; display: flex; flex-direction: column;
+  border-radius: 18px 18px 0 0; background: var(--surface);
+  padding-block: 14px calc(10px + env(safe-area-inset-bottom, 0px)); padding-left: var(--gut-l); padding-right: var(--gut-r);
+}
+.sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.sheet-head h2 { margin: 0; font-size: 17px; font-weight: 700; }
+.icon-btn { width: 36px; height: 36px; border-radius: 50%; background: var(--sunken); display: grid; place-items: center; }
+.icon-btn svg { width: 18px; height: 18px; }
+.search { width: 100%; height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); font-size: 16px; }
+.cat-list { list-style: none; margin: 8px 0 0; padding: 0; overflow-y: auto; min-height: 0; }
+.cat-list button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 2px; border-bottom: 1px solid var(--line); text-align: left; }
+.cat-list button[aria-pressed="true"] { color: var(--accent); font-weight: 600; }
+.cat-tip { flex: none; font-size: 12px; color: var(--muted); font-weight: 400; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header class="top">
+    <div class="top-row">
+      <div class="seg" role="tablist" aria-label="Yozuv turi">
+        <button role="tab" id="tab-out" data-set-mode="out" aria-selected="true">Chiqim</button>
+        <button role="tab" id="tab-in" data-set-mode="in" aria-selected="false">Kirim</button>
+        <button role="tab" id="tab-ex" data-set-mode="ex" aria-selected="false">Almashtirish</button>
+      </div>
+      <button class="mic-btn" id="micBtn" data-act="voice" aria-label="Ovoz bilan kiritish" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+      </button>
+    </div>
+    <button class="pending" id="pendingBtn" data-act="voice-review" hidden></button>
+    <p class="demo" id="demoNote" hidden><b>Namuna rejimi.</b> Maʼlumot sheetga yozilmaydi.</p>
+  </header>
+
+  <main class="scroll" id="scroll">
+    <section class="state" id="state" hidden></section>
+    <div class="form" id="form">
+      <section id="walletBlock" aria-label="Hamyon"></section>
+      <section id="amountBlock" aria-label="Summa"></section>
+      <section id="catBlock" aria-label="Kategoriya"></section>
+      <section class="meta" aria-label="Sana va izoh">
+        <div class="chips" id="dates"></div>
+        <input class="note" id="note" type="text" placeholder="Izoh (ixtiyoriy)" autocomplete="off" maxlength="200" enterkeyhint="done">
+      </section>
+      <section id="recentBlock" aria-label="Oxirgi yozuvlar"></section>
+    </div>
+  </main>
+
+  <footer class="dock" id="dock">
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+    <div class="keypad" id="keypad">
+      <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+      <button data-k="back" class="op" aria-label="Oxirgi raqamni oʻchirish"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6-7z"/><path d="m12.5 9.5 5 5m0-5-5 5"/></svg></button>
+      <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+      <button data-k="+" class="op" aria-label="Qoʻshish">+</button>
+      <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+      <button data-k="000" class="op">000</button>
+      <button data-k="." aria-label="Kasr">,</button><button data-k="0" class="wide">0</button>
+      <button data-k="clear" class="op" aria-label="Tozalash">C</button>
+    </div>
+    <button class="save" id="saveBtn" disabled>Saqlash</button>
+  </footer>
+
+  <div class="sheet-bg" id="sheetBg" hidden></div>
+  <div class="sheet" id="catSheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden>
+    <div class="sheet-head">
+      <h2 id="sheetTitle">Kategoriyalar</h2>
+      <button class="icon-btn" data-act="close-sheet" aria-label="Yopish"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+    <input class="search" id="catSearch" type="search" placeholder="Qidirish…" autocomplete="off">
+    <ul class="cat-list" id="catList"></ul>
+  </div>
+
+  <div class="sheet" id="voiceSheet" role="dialog" aria-modal="true" aria-labelledby="voiceTitle" hidden>
+    <div class="sheet-head">
+      <h2 id="voiceTitle">Tez kiritish</h2>
+      <button class="icon-btn" data-act="voice-close" aria-label="Yopish"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div class="voice-body" id="voiceBody"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ===== SOZLAMA =====
+     Apps Script Web App manzili (…/exec bilan tugaydi). Boʻsh qolsa, ilova namuna rejimida ishlaydi. */
+  var API_URL = '';
+
+  var USD_WALLETS = ['Cash dollar', 'Visa', 'Master card'];
+  var EXCHANGE = 'Exchange';
+
+  var tg = (window.Telegram && window.Telegram.WebApp) || null;
+  var IN_TG = !!(tg && tg.initData);
+  var LIVE = !!(API_URL && IN_TG);
+
+  var $ = function (s) { return document.querySelector(s); };
+  var el = {
+    form: $('#form'), state: $('#state'), wallet: $('#walletBlock'), amount: $('#amountBlock'), cat: $('#catBlock'),
+    dates: $('#dates'), note: $('#note'), recent: $('#recentBlock'), keypad: $('#keypad'), save: $('#saveBtn'),
+    toast: $('#toast'), sheet: $('#catSheet'), sheetBg: $('#sheetBg'), search: $('#catSearch'), catList: $('#catList'),
+    demo: $('#demoNote'), scroll: $('#scroll'),
+    voiceSheet: $('#voiceSheet'), voiceBody: $('#voiceBody'), mic: $('#micBtn'), pending: $('#pendingBtn')
+  };
+  var VOICE_MAX_SEC = 60;
+  // Ovoz holati: idle | input | rec | busy | review | error
+  var V = { open: false, state: 'idle', entries: [], transcript: '', error: '', text: '', source: 'voice', stream: null, rec: null, chunks: [],
+            ac: null, analyser: null, raf: 0, timer: 0, t0: 0, cancelled: false };
+
+  var S = {
+    mode: 'out', amount: '', rate: '', focus: 'amount',
+    wallet: { out: null, in: null }, touched: { out: false, in: false },
+    cat: { out: null, in: null }, from: null, to: null,
+    date: null, busy: false, ready: false, lastSaved: null, sheetOpen: false
+  };
+  var D = null;
+  var toastTimer = null;
+  var demoRow = 5000;
+
+  /* ---------- helpers ---------- */
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function isUsd(w) { return USD_WALLETS.indexOf(w) >= 0; }
+  function group(i) { return i.replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
+  function fmtNum(n, maxDec) {
+    if (!isFinite(n)) return '—';
+    var neg = n < 0; n = Math.abs(n);
+    var p = Math.pow(10, maxDec);
+    var s = (Math.round(n * p) / p).toFixed(maxDec);
+    if (maxDec > 0) s = s.replace(/0+$/, '').replace(/\.$/, '');
+    var parts = s.split('.');
+    return (neg ? '−' : '') + group(parts[0]) + (parts[1] ? ',' + parts[1] : '');
+  }
+  function money(n, w) { return isUsd(w) ? '$' + fmtNum(n, 2) : fmtNum(n, 0) + ' soʻm'; }
+  function total(expr) { return String(expr || '').split('+').reduce(function (s, t) { return s + (parseFloat(t) || 0); }, 0); }
+  function round2(n) { return Math.round(n * 100) / 100; }
+  function showExpr(expr) {
+    if (!expr) return '0';
+    return expr.split('+').map(function (t) {
+      if (t === '') return '';
+      var p = t.split('.');
+      return group(p[0] || '0') + (p.length > 1 ? ',' + p[1] : '');
+    }).join(' + ');
+  }
+  function iso(d) { var z = function (n) { return (n < 10 ? '0' : '') + n; }; return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()); }
+  function shiftIso(s, days) { var p = s.split('-').map(Number); return iso(new Date(p[0], p[1] - 1, p[2] + days)); }
+  function ddmm(s) { var p = String(s).split('-'); if (p.length < 3) return s; return p[2] + '.' + p[1] + (Number(p[0]) !== new Date().getFullYear() ? '.' + p[0] : ''); }
+  function convert(amount, from, to, rate) {
+    var fu = isUsd(from), tu = isUsd(to);
+    if (fu === tu) return amount;
+    if (!(rate > 0)) return NaN;
+    return fu ? amount * rate : amount / rate;
+  }
+  function cssVar(name) { return getComputedStyle(document.body).getPropertyValue(name).trim(); }
+  function haptic(kind) {
+    if (!tg || !tg.HapticFeedback) return;
+    try {
+      if (kind === 'select') tg.HapticFeedback.selectionChanged();
+      else if (kind === 'light') tg.HapticFeedback.impactOccurred('light');
+      else tg.HapticFeedback.notificationOccurred(kind);
+    } catch (e) {}
+  }
+  function rateFor(f, t) {
+    var r = (D.pairRate && (D.pairRate[f + '>' + t] || D.pairRate[t + '>' + f])) || D.lastRate;
+    return r ? String(round2(r)) : '';
+  }
+
+  var ICON = {
+    cal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
+    swap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16m0 0-3-3m3 3 3-3M17 20V4m0 0-3 3m3-3 3 3"/></svg>',
+    ex: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h14l-3-3M20 16H6l3 3"/></svg>',
+    mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>',
+    x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>'
+  };
+
+  /* ---------- API ---------- */
+  function api(action, payload) {
+    var body = Object.assign({ action: action, initData: tg.initData }, payload || {});
+    return fetch(API_URL, { method: 'POST', body: JSON.stringify(body) })
+      .then(function (r) { if (!r.ok) throw new Error('Server javobi: ' + r.status); return r.json(); })
+      .then(function (j) { if (!j.ok) throw new Error(j.error || 'Nomaʼlum xatolik'); return j; });
+  }
+
+  /* ---------- demo data (namuna; haqiqiy maʼlumot emas) ---------- */
+  function demoData() {
+    var today = iso(new Date()), yday = shiftIso(today, -1);
+    // Namuna: tartib va odatdagi hamyon sheetdagi ishlatilishga qarab (sonlar faqat tartib uchun)
+    var outNames = [
+      ['Grocery ', 25, 'Cash sum'], ["Wife's expenses ", 24, 'Cash sum'], ['Charity', 23, 'Card sum'], ['Doctor', 22, 'Cash sum'],
+      ['Medicine', 21, 'Cash sum'], ['Other', 20, 'Cash sum'], ['Lunch with family', 19, 'Cash sum'], ['Electricity', 18, 'Card sum'],
+      ['Household expenses ', 17, 'Card sum'], ['Lunch', 16, 'Card sum'], ['Home cleaning', 15, 'Cash sum'],
+      ['Personal clothing', 14, 'Cash sum'], ['Taxi', 13, 'Card sum'], ['School', 12, 'Cash sum'], ['Transfer fee', 11, 'Card sum'],
+      ['Clothing ', 10, 'Cash sum'], ['Mobile payment ', 9, 'Card sum'], ['Barbershop ', 8, 'Cash sum'], ['Car wash ', 7, 'Cash sum'],
+      ['Traffic fine', 6, 'Card sum'], ['Lunch with friends', 5, 'Cash sum'], ['Natural gas', 4, 'Card sum'],
+      ['Parking fee', 3, 'Cash sum'], ['Internet', 2, 'Card sum'], ['Travel', 1, 'Cash dollar'], ['Zakot', 0, 'Cash dollar']
+    ];
+    var tips = { 'Travel': 'Medium-term expenses', 'Zakot': 'Long-term expenses' };
+    var d = {
+      wallets: ['Cash sum', 'Cash dollar', 'Card sum', 'Visa', 'Master card'],
+      balances: { 'Cash sum': 3400000, 'Cash dollar': 1250, 'Card sum': 820000, 'Visa': 120.5, 'Master card': 15 },
+      outCats: [{ name: EXCHANGE, tip: '' }], inCats: ['Transfer profit', 'Dividend', 'Car sale', 'Loan', 'Other'],
+      usage: { out: {}, in: { 'Transfer profit': 20, 'Dividend': 14, 'Other': 9, 'Car sale': 5, 'Loan': 2 } },
+      favWallet: { out: {}, in: {} }, defaultWallet: { out: 'Cash sum', in: 'Cash dollar' },
+      exPair: ['Cash dollar', 'Cash sum'], lastRate: 12000, pairRate: { 'Cash dollar>Cash sum': 12000, 'Cash dollar>Card sum': 11950 },
+      recent: [
+        { sheet: 'out', row: 4999, date: today, cat: 'Grocery ', amount: 185000, wallet: 'Cash sum', to: '', rate: null, note: '' },
+        { sheet: 'out', row: 4998, date: today, cat: EXCHANGE, amount: 100, wallet: 'Cash dollar', to: 'Cash sum', rate: 12000, note: '' },
+        { sheet: 'out', row: 4997, date: yday, cat: 'Taxi', amount: 32000, wallet: 'Card sum', to: '', rate: null, note: '' },
+        { sheet: 'in', row: 130, date: yday, cat: 'Dividend', amount: 1000, wallet: 'Cash dollar', to: '', rate: null, note: '' }
+      ]
+    };
+    outNames.forEach(function (r) {
+      d.outCats.push({ name: r[0], tip: tips[r[0]] || 'Short-term expenses' });
+      d.usage.out[r[0]] = r[1]; d.favWallet.out[r[0]] = r[2];
+    });
+    return d;
+  }
+  function applyBalances(b, entry, sign) {
+    var amt = entry.amount, w = entry.wallet;
+    if (entry.type === 'in' || entry.sheet === 'in') b[w] += sign * amt;
+    else if (entry.to) { b[w] -= sign * amt; b[entry.to] += sign * convert(amt, w, entry.to, entry.rate || D.lastRate); }
+    else b[w] -= sign * amt;
+  }
+  function demoAdd(entry) {
+    var b = Object.assign({}, D.balances);
+    applyBalances(b, entry, 1);
+    var saved = { sheet: entry.type === 'in' ? 'in' : 'out', row: ++demoRow, date: entry.date, cat: entry.category, amount: entry.amount,
+      wallet: entry.wallet, to: entry.to || '', rate: entry.rate || null, note: entry.note };
+    return new Promise(function (res) { setTimeout(function () { res({ saved: saved, balances: b }); }, 350); });
+  }
+  function demoUndo(rec) {
+    var b = Object.assign({}, D.balances);
+    applyBalances(b, rec, -1);
+    return new Promise(function (res) { setTimeout(function () { res({ balances: b }); }, 250); });
+  }
+
+  /* ---------- validation ---------- */
+  function validity() {
+    var amt = total(S.amount);
+    if (S.mode === 'ex') {
+      if (!S.from || !S.to) return { ok: false, msg: 'Hamyonlarni tanlang' };
+      if (S.from === S.to) return { ok: false, msg: 'Ikki xil hamyon tanlang' };
+      if (!(amt > 0)) return { ok: false, msg: 'Summani kiriting' };
+      var rate = parseFloat(S.rate);
+      if (isUsd(S.from) !== isUsd(S.to) && !(rate > 0)) return { ok: false, msg: 'Kursni kiriting' };
+      return { ok: true, msg: 'Saqlash · ' + money(amt, S.from) + ' → ' + money(convert(amt, S.from, S.to, rate), S.to) };
+    }
+    if (!(amt > 0)) return { ok: false, msg: 'Summani kiriting' };
+    if (!S.cat[S.mode]) return { ok: false, msg: 'Kategoriyani tanlang' };
+    if (!S.wallet[S.mode]) return { ok: false, msg: 'Hamyonni tanlang' };
+    return { ok: true, msg: 'Saqlash · ' + money(amt, S.wallet[S.mode]) };
+  }
+
+  /* ---------- render ---------- */
+  var WALLET_COLOR = { 'Cash sum': '--w-cash-sum', 'Card sum': '--w-card-sum', 'Cash dollar': '--w-cash-usd', 'Visa': '--w-visa', 'Master card': '--w-master' };
+  function wcolor(w) { return 'var(' + (WALLET_COLOR[w] || '--muted') + ')'; }
+  function wdot(w) { return '<span class="wdot" style="--wc:' + wcolor(w) + '" aria-hidden="true"></span>'; }
+  function walletBtn(w, role, pressed, disabled) {
+    var bal = D.balances[w] || 0;
+    return '<button class="wallet" style="--wc:' + wcolor(w) + '" data-w="' + esc(w) + '" data-role="' + role + '" aria-pressed="' + pressed + '"' + (disabled ? ' disabled' : '') + '>' +
+      '<span class="w-name">' + esc(w) + '</span><span class="w-bal' + (bal < 0 ? ' neg' : '') + '">' + esc(money(bal, w)) + '</span></button>';
+  }
+  function renderWallets() {
+    if (S.mode === 'ex') {
+      el.wallet.innerHTML =
+        '<div class="ex-rows"><div><div class="ex-row-head"><span class="lbl">Qayerdan</span>' +
+        '<button class="swap" data-act="swap">' + ICON.swap + 'Almashtirish</button></div>' +
+        '<div class="hscroll">' + D.wallets.map(function (w) { return walletBtn(w, 'from', w === S.from, false); }).join('') + '</div></div>' +
+        '<div><div class="ex-row-head"><span class="lbl">Qayerga</span></div>' +
+        '<div class="hscroll">' + D.wallets.map(function (w) { return walletBtn(w, 'to', w === S.to, w === S.from); }).join('') + '</div></div></div>';
+      return;
+    }
+    var cur = S.wallet[S.mode];
+    el.wallet.innerHTML = '<div class="lbl-row"><span class="lbl">Hamyon</span></div><div class="hscroll">' +
+      D.wallets.map(function (w) { return walletBtn(w, 'wallet', w === cur, false); }).join('') + '</div>';
+  }
+
+  function renderAmount() {
+    var amt = total(S.amount);
+    var caret = '<span class="caret" aria-hidden="true"></span>';
+    if (S.mode === 'ex') {
+      var cross = isUsd(S.from) !== isUsd(S.to);
+      var rate = parseFloat(S.rate);
+      var got = convert(amt, S.from, S.to, rate);
+      var fUsd = isUsd(S.from);
+      var amountVal = (fUsd ? '<span class="amt-cur">$</span>' : '') + '<span>' + showExpr(S.amount) + '</span>' + (fUsd ? '' : '<span class="amt-cur">soʻm</span>');
+      var html = '<div class="ex-fields' + (cross ? '' : ' single') + '">' +
+        '<button class="field" data-field="amount" aria-pressed="' + (S.focus === 'amount') + '"><span class="f-lbl">Beriladi · ' + esc(S.from || '') + '</span>' +
+        '<span class="f-val' + (S.amount ? '' : ' empty') + '">' + amountVal + (S.focus === 'amount' ? caret : '') + '</span></button>';
+      if (cross) {
+        html += '<button class="field" data-field="rate" aria-pressed="' + (S.focus === 'rate') + '"><span class="f-lbl">Kurs, soʻm / $</span>' +
+          '<span class="f-val' + (S.rate ? '' : ' empty') + '"><span>' + (S.rate ? showExpr(S.rate) : '0') + '</span>' + (S.focus === 'rate' ? caret : '') + '</span></button>';
+      }
+      html += '</div><div class="ex-out"><span>' + esc(S.to || '') + ' hamyoniga tushadi</span><b>' +
+        (amt > 0 && isFinite(got) ? esc(money(got, S.to)) : '—') + '</b></div>';
+      el.amount.innerHTML = html;
+      return;
+    }
+    var w = S.wallet[S.mode];
+    var usd = isUsd(w);
+    var long = showExpr(S.amount).length > 11;
+    var hint = [];
+    if (S.amount.indexOf('+') >= 0 && amt > 0) hint.push('<span>= <b>' + esc(money(amt, w)) + '</b></span>');
+    if (amt > 0 && D.lastRate) hint.push('<span>≈ ' + (usd ? esc(fmtNum(amt * D.lastRate, 0)) + ' soʻm' : '$' + esc(fmtNum(amt / D.lastRate, 2))) + '</span>');
+    if (amt > 0 && w) {
+      var after = (D.balances[w] || 0) + (S.mode === 'in' ? amt : -amt);
+      hint.push('<span>Qoldiq: ' + esc(money(after, w)) + '</span>');
+    }
+    if (S.mode === 'in' && w && !usd && D.lastRate) hint.push('<span>kurs ' + esc(fmtNum(D.lastRate, 2)) + ' bilan</span>');
+    el.amount.innerHTML = '<div class="amount"><div class="lbl-row"><span class="lbl">' + (S.mode === 'in' ? 'Kirim summasi' : 'Chiqim summasi') + '</span></div>' +
+      '<div class="amt' + (long ? ' long' : '') + (S.amount ? '' : ' empty') + '">' +
+      (usd ? '<span class="amt-cur">$</span>' : '') + '<span class="amt-val">' + showExpr(S.amount) + '</span>' + caret +
+      (usd ? '' : '<span class="amt-cur">soʻm</span>') + '</div>' +
+      '<div class="amt-hint">' + hint.join('') + '</div></div>';
+  }
+
+  function catNames(mode) {
+    var names = mode === 'out'
+      ? D.outCats.map(function (c) { return c.name; }).filter(function (n) { return n !== EXCHANGE; })
+      : D.inCats.slice();
+    var u = D.usage[mode] || {};
+    return names.sort(function (a, b) { return (u[b] || 0) - (u[a] || 0) || a.localeCompare(b); });
+  }
+  function renderCats() {
+    if (S.mode === 'ex') { el.cat.hidden = true; return; }
+    el.cat.hidden = false;
+    var all = catNames(S.mode);
+    var sel = S.cat[S.mode];
+    var top = all.slice(0, 30);
+    if (sel && top.indexOf(sel) < 0) top = [sel].concat(top);
+    el.cat.innerHTML = '<div class="lbl-row"><span class="lbl">Kategoriya</span>' +
+      '<button class="link" data-act="open-sheet">Barchasi (' + all.length + ')</button></div><div class="chips">' +
+      top.map(function (n) { return '<button class="chip" data-cat="' + esc(n) + '" aria-pressed="' + (n === sel) + '">' + esc(n.trim()) + '</button>'; }).join('') +
+      '</div>';
+    fitCatChips();
+  }
+
+  // Eng koʻp ishlatiladiganlar 3 qatorni chetigacha toʻldiradi: telefonda kamroq, keng ekranda koʻproq.
+  // Sigʻmagan uzun nom oʻrniga keyingi qisqasi joylashadi (tartib baribir ishlatilish soni boʻyicha).
+  var CAT_ROWS = 3;
+  function fitCatChips() {
+    var box = el.cat.querySelector('.chips');
+    if (!box || el.cat.hidden) return;
+    var chips = Array.prototype.slice.call(box.children);
+    var fit = function () {
+      chips.forEach(function (c) { c.hidden = false; });
+      var tops = [];
+      chips.forEach(function (c) { if (tops.indexOf(c.offsetTop) < 0) tops.push(c.offsetTop); });
+      tops.sort(function (a, b) { return a - b; });
+      var limit = tops[Math.min(CAT_ROWS, tops.length) - 1];
+      chips.forEach(function (c) { if (c.offsetTop > limit) c.hidden = true; });
+    };
+    fit();
+    var selChip = box.querySelector('[aria-pressed="true"]');
+    if (selChip && selChip.hidden) { box.insertBefore(selChip, box.firstChild); chips = Array.prototype.slice.call(box.children); fit(); }
+  }
+  var resizeTimer = 0;
+  window.addEventListener('resize', function () { clearTimeout(resizeTimer); resizeTimer = setTimeout(function () { if (S.ready) fitCatChips(); }, 120); });
+
+  function renderDates() {
+    var today = iso(new Date()), yday = shiftIso(today, -1);
+    var other = S.date !== today && S.date !== yday;
+    el.dates.innerHTML =
+      '<button class="chip sm" data-date="' + today + '" aria-pressed="' + (S.date === today) + '">Bugun</button>' +
+      '<button class="chip sm" data-date="' + yday + '" aria-pressed="' + (S.date === yday) + '">Kecha</button>' +
+      '<label class="chip sm" aria-pressed="' + other + '">' + ICON.cal + '<span>' + (other ? esc(ddmm(S.date)) : 'Boshqa sana') + '</span>' +
+      '<input type="date" id="dateInput" value="' + esc(S.date) + '" aria-label="Sanani tanlash"></label>';
+  }
+
+  function recKind(r) { return r.sheet === 'in' ? 'in' : (r.cat === EXCHANGE ? 'ex' : 'out'); }
+  function renderRecent() {
+    var items = D.recent.slice(0, 10);
+    var html = '<div class="lbl-row"><span class="lbl">Oxirgi yozuvlar</span></div>';
+    if (!items.length) { el.recent.innerHTML = html + '<p class="empty-note">Hali yozuv yoʻq.</p>'; return; }
+    html += '<ul class="recent">' + items.map(function (r) {
+      var k = recKind(r);
+      var title = k === 'ex' ? r.wallet + ' → ' + r.to : String(r.cat).trim();
+      var sub = (k === 'ex'
+        ? [r.rate ? esc('kurs ' + fmtNum(r.rate, 2)) : '', esc(ddmm(r.date))]
+        : [r.wallet ? wdot(r.wallet) + esc(r.wallet) : '', esc(ddmm(r.date)), esc(r.note)]).filter(Boolean).join(' · ');
+      var amt = (k === 'in' ? '+' : k === 'out' ? '−' : '') + money(r.amount, r.wallet);
+      var mark = k === 'ex' ? ICON.ex : (k === 'in' ? '+' : '−');
+      var mine = S.lastSaved === r;
+      return '<li class="rec' + (mine ? ' fresh' : '') + '" data-kind="' + k + '"><span class="dot" aria-hidden="true">' + mark + '</span>' +
+        '<div class="rec-main"><div class="rec-title">' + esc(title) + '</div><div class="rec-sub">' + sub + '</div>' +
+        (mine ? '<button class="undo" data-act="undo">Bekor qilish</button>' : '') + '</div>' +
+        '<div class="rec-amt">' + esc(amt) + '</div></li>';
+    }).join('') + '</ul>';
+    el.recent.innerHTML = html;
+  }
+
+  function renderKeypad() {
+    var rateField = S.mode === 'ex' && S.focus === 'rate';
+    var plus = el.keypad.querySelector('[data-k="+"]');
+    plus.disabled = rateField || !S.ready;
+    Array.prototype.forEach.call(el.keypad.querySelectorAll('button'), function (b) { if (b !== plus) b.disabled = !S.ready; });
+  }
+
+  function renderSave() {
+    var v = S.ready ? validity() : { ok: false, msg: 'Yuklanmoqda…' };
+    var text = S.busy ? 'Saqlanmoqda…' : v.msg;
+    if (IN_TG) {
+      el.save.hidden = true;
+      try {
+        tg.MainButton.setParams({
+          text: text, is_visible: !S.sheetOpen && !V.open && S.ready, is_active: v.ok && !S.busy,
+          color: v.ok ? cssVar('--accent') : cssVar('--sunken'), text_color: v.ok ? cssVar('--on-accent') : cssVar('--muted')
+        });
+        if (S.busy) tg.MainButton.showProgress(false); else tg.MainButton.hideProgress();
+      } catch (e) {}
+    } else {
+      el.save.textContent = text;
+      el.save.disabled = !v.ok || S.busy;
+    }
+  }
+
+  function render() {
+    if (document.body.getAttribute('data-mode') !== S.mode) { document.body.setAttribute('data-mode', S.mode); syncTgHeader(); }
+    ['out', 'in', 'ex'].forEach(function (m) { $('#tab-' + m).setAttribute('aria-selected', String(S.mode === m)); });
+    el.mic.disabled = !S.ready;
+    if (!S.ready) { renderKeypad(); renderSave(); return; }
+    renderPending();
+    if (V.open && V.state === 'review') renderVoice();
+    else if (V.open && V.state === 'input') renderCmdOut();
+    renderWallets(); renderAmount(); renderCats(); renderDates(); renderRecent(); renderKeypad(); renderSave();
+  }
+
+  /* ---------- actions ---------- */
+  function press(k) {
+    if (!S.ready || S.busy) return;
+    var field = S.mode === 'ex' && S.focus === 'rate' ? 'rate' : 'amount';
+    var v = S[field];
+    var term = v.split('+').pop();
+    if (k === 'back') v = v.slice(0, -1);
+    else if (k === 'clear') v = '';
+    else if (k === '+') { if (field === 'amount' && /\d$/.test(v) && v.split('+').length < 12) v += '+'; else return; }
+    else if (k === '.') { if (term.indexOf('.') < 0) v += term === '' ? '0.' : '.'; else return; }
+    else if (k === '000') { if (term !== '' && term !== '0' && term.indexOf('.') < 0) v += '000'; else return; }
+    else {
+      if (term.indexOf('.') >= 0 && term.split('.')[1].length >= 2) return;
+      v = term === '0' ? v.slice(0, -1) + k : v + k;
+    }
+    if (v.replace(/\D/g, '').length > 16) return;
+    S[field] = v;
+    haptic('select');
+    renderAmount(); renderSave();
+  }
+
+  function setMode(m) {
+    if (m === S.mode || S.busy) return;
+    S.mode = m;
+    S.focus = 'amount';
+    if (m === 'ex' && !S.rate) S.rate = rateFor(S.from, S.to);
+    haptic('select');
+    render();
+  }
+
+  function pickWallet(w, role) {
+    if (role === 'wallet') { S.wallet[S.mode] = w; S.touched[S.mode] = true; }
+    else if (role === 'from') {
+      if (w === S.to) S.to = S.from;
+      S.from = w; S.rate = rateFor(S.from, S.to);
+      if (isUsd(S.from) === isUsd(S.to)) S.focus = 'amount';
+    } else if (role === 'to') {
+      if (w === S.from) return;
+      S.to = w; S.rate = rateFor(S.from, S.to);
+      if (isUsd(S.from) === isUsd(S.to)) S.focus = 'amount';
+    }
+    haptic('select');
+    render();
+  }
+
+  function pickCat(name) {
+    S.cat[S.mode] = name;
+    var fav = D.favWallet[S.mode] && D.favWallet[S.mode][name];
+    if (!S.touched[S.mode] && fav && D.wallets.indexOf(fav) >= 0) S.wallet[S.mode] = fav;
+    haptic('select');
+    render();
+  }
+
+  function save() {
+    var v = validity();
+    if (!v.ok || S.busy) { haptic('error'); return; }
+    var amt = round2(total(S.amount));
+    var expr = S.amount.indexOf('+') >= 0 ? S.amount.replace(/\+$/, '') : '';
+    var note = el.note.value.trim();
+    var entry;
+    if (S.mode === 'ex') {
+      var cross = isUsd(S.from) !== isUsd(S.to);
+      entry = { type: 'exchange', date: S.date, category: EXCHANGE, amount: amt, expr: expr, wallet: S.from, to: S.to,
+        rate: cross ? parseFloat(S.rate) : null, note: note };
+    } else {
+      entry = { type: S.mode, date: S.date, category: S.cat[S.mode], amount: amt, expr: expr, wallet: S.wallet[S.mode], to: '', rate: null, note: note };
+    }
+    S.busy = true; renderSave();
+    persist(entry).then(function () {
+      S.amount = ''; S.focus = 'amount'; el.note.value = '';
+      var label = entry.type === 'exchange' ? entry.wallet + ' → ' + entry.to : String(entry.category).trim();
+      toast('Saqlandi: ' + label + ', ' + money(entry.amount, entry.wallet), 'ok', true);
+      haptic('success');
+    }).catch(function (e) {
+      toast('Saqlanmadi. ' + e.message, 'error');
+      haptic('error');
+    }).then(function () {
+      S.busy = false; render();
+      el.scroll.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }
+
+  // Bitta yozuvni sheetga yozadi va ilova holatini yangilaydi (forma ham, ovoz ham shuni ishlatadi).
+  function persist(entry) {
+    var p = LIVE ? api('add', { entry: entry }) : demoAdd(entry);
+    return p.then(function (r) {
+      D.balances = r.balances;
+      D.recent.unshift(r.saved);
+      S.lastSaved = r.saved;
+      if (entry.type === 'exchange' && entry.rate) { D.pairRate[entry.wallet + '>' + entry.to] = entry.rate; D.lastRate = entry.rate; }
+      if (entry.type !== 'exchange') { var u = D.usage[entry.type]; u[entry.category] = (u[entry.category] || 0) + 1; }
+      return r.saved;
+    });
+  }
+
+  /* ---------- buyruqni tushunish: "medicine 150k cash sum" → yozuv ----------
+     AI'siz, telefonning oʻzida ishlaydi. Matn yoki klaviatura orqali aytilgan gap uchun. */
+  /* PARSER START */
+  var CMD = (function () {
+    var UNITS = { 'bir': 1, 'bitta': 1, 'ikki': 2, 'ikkita': 2, 'uch': 3, "to'rt": 4, 'tort': 4, 'besh': 5, 'olti': 6, 'yetti': 7,
+      'sakkiz': 8, "to'qqiz": 9, 'toqqiz': 9 };
+    var TENS = { "o'n": 10, 'yigirma': 20, "o'ttiz": 30, 'ottiz': 30, 'qirq': 40, 'ellik': 50, 'oltmish': 60, 'yetmish': 70,
+      'sakson': 80, "to'qson": 90, 'toqson': 90 };
+    // Inglizcha sonlar: ovozni matnga aylantirgan dastur koʻpincha soʻz bilan yozadi
+    var EN_UNITS = { 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+      'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14, 'fifteen': 15, 'sixteen': 16, 'seventeen': 17, 'eighteen': 18, 'nineteen': 19 };
+    var EN_TENS = { 'twenty': 20, 'thirty': 30, 'forty': 40, 'fourty': 40, 'fifty': 50, 'sixty': 60, 'seventy': 70, 'eighty': 80, 'ninety': 90 };
+    var SCALES = [['milliard', 1e9], ['mlrd', 1e9], ['billion', 1e9], ['million', 1e6], ['mln', 1e6], ['миллион', 1e6], ['млн', 1e6],
+      ['ming', 1e3], ['минг', 1e3], ['тыс', 1e3], ['thousand', 1e3], ['yuz', 100], ['hundred', 100]];
+    var SOM = /^(so'm|som|sum|soum|summ|сум|сўм|uzs)/, USDW = /^(\$|dollar|usd|доллар|долл)/;
+    // "cash sum" ni ovoz dasturi "cash some", "cash son" deb ham yozadi
+    var SOM_AFTER_WALLET = /^(so'm|som|sum|soum|summ|some|son|sun|сум|сўм|uzs)/;
+    var STOP = " ga ni da dan uchun ham va bilan to'ladim toladim berdim berildi ketdi sarfladim sarf xarajat qildim oldim sotib " +
+      "pul puli pulini summa for to on at paid spent the an my bu shu edi bo'ldi boldi ";
+    var GENERIC = ' expenses expense fee for the with of and my myself kids kid lesson lessons old new own app cash ';
+    // Oʻzbekcha soʻz → sheetdagi kategoriya (sheetda bor boʻlsagina ishlatiladi)
+    var SYN = { 'dori': 'Medicine', 'dorixona': 'Medicine', 'apteka': 'Medicine', 'bozor': 'Grocery', 'oziq': 'Grocery',
+      'produkt': 'Grocery', 'korzinka': 'Grocery', 'makro': 'Grocery', 'havas': 'Grocery', 'taksi': 'Taxi', 'yandex': 'Taxi',
+      'shifokor': 'Doctor', 'vrach': 'Doctor', 'doktor': 'Doctor', 'klinika': 'Doctor', 'svet': 'Electricity', 'elektr': 'Electricity',
+      'gaz': 'Natural gas', 'telefon': 'Mobile payment', 'mobil': 'Mobile payment', 'xayriya': 'Charity', 'sadaqa': 'Charity',
+      'ehson': 'Charity', 'maktab': 'School', 'kiyim': 'Clothing', 'sartarosh': 'Barbershop', 'moyka': 'Car wash',
+      'avtomoyka': 'Car wash', 'tushlik': 'Lunch', 'parkovka': 'Parking fee', 'xotin': "Wife's expenses", 'ayolim': "Wife's expenses",
+      'rafiqam': "Wife's expenses", "ro'zg'or": 'Household expenses', 'tozalash': 'Home cleaning', 'uborka': 'Home cleaning',
+      'suv': 'Drinking water', 'soliq': 'Tax', 'jarima': 'Traffic fine', 'shtraf': 'Traffic fine', 'sayohat': 'Travel',
+      'benzin': 'Car costs', 'metan': 'Car costs', 'propan': 'Car costs', 'kitob': 'Books', 'sport': 'Gym ', 'boshqa': 'Other',
+      'dadam': "Father's pension", 'otam': "Father's pension", 'onam': "Mother's pension", 'oyim': "Mother's pension" };
+
+    function clean(s) { return String(s || '').toLowerCase().replace(/[ʻʼ’‘`´]/g, "'").replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim(); }
+    function tokenize(text) {
+      var s = clean(text)
+        .replace(/(\d)[\s  ](?=\d{3}(?!\d))/g, '$1')
+        .replace(/(\d),(?=\d{3}(?!\d))/g, '$1')
+        .replace(/(\d),(?=\d)/g, '$1.');
+      return (s.match(/\$|\d+(?:\.\d+)?|[a-zа-яёўқғҳ']+/g) || [])
+        .map(function (t) { return { t: t.replace(/^'+|'+$/g, ''), used: false }; })
+        .filter(function (x) { return x.t; });
+    }
+    function numWord(w) {
+      if (/^\d+(\.\d+)?$/.test(w)) return { n: parseFloat(w), k: 'digit' };
+      if (UNITS[w] != null) return { n: UNITS[w], k: 'unit' };
+      if (EN_UNITS[w] != null) return { n: EN_UNITS[w], k: 'unit' };
+      if (TENS[w] != null) return { n: TENS[w], k: 'tens' };
+      if (EN_TENS[w] != null) return { n: EN_TENS[w], k: 'tens' };
+      if (w === 'yarim' || w === 'half') return { half: true, k: 'half' };
+      for (var i = 0; i < SCALES.length; i++) if (w.indexOf(SCALES[i][0]) === 0) return { scale: SCALES[i][1], k: 'scale' };
+      return null;
+    }
+    function hasNumber(text) { return tokenize(text).some(function (x) { return numWord(x.t); }); }
+    function evalNum(parts) {
+      var total = 0, cur = 0;
+      parts.forEach(function (p) {
+        if (p.n != null) cur += p.n;
+        else if (p.half) cur += 0.5;
+        else if (p.scale === 100) cur = (cur || 1) * 100;
+        else { total += (cur || 1) * p.scale; cur = 0; }
+      });
+      return total + cur;
+    }
+    function shift(isoDate, d) { var p = isoDate.split('-').map(Number); var x = new Date(p[0], p[1] - 1, p[2] + d);
+      return x.getFullYear() + '-' + ('0' + (x.getMonth() + 1)).slice(-2) + '-' + ('0' + x.getDate()).slice(-2); }
+    function lev(a, b) {
+      var m = a.length, n = b.length, d = [], i, j;
+      for (i = 0; i <= m; i++) d[i] = [i];
+      for (j = 1; j <= n; j++) d[0][j] = j;
+      for (i = 1; i <= m; i++) for (j = 1; j <= n; j++)
+        d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      return d[m][n];
+    }
+    function stem(w) {
+      w = w.replace(/'s$/, '');
+      if (w.length > 4 && /ies$/.test(w)) return w.slice(0, -3) + 'y';
+      if (w.length > 3 && /s$/.test(w) && !/ss$/.test(w)) return w.slice(0, -1);
+      return w;
+    }
+    function roleOf(w) { return /(ga|ka|qa)$/.test(w) ? 'to' : (/(dan|tan)$/.test(w) ? 'from' : null); }
+
+    function findWallets(toks) {
+      var found = [];
+      for (var i = 0; i < toks.length; i++) {
+        if (toks[i].used) continue;
+        var a = toks[i].t, b = toks[i + 1] && !toks[i + 1].used ? toks[i + 1].t : '';
+        var cash = /^(cash|cache|kesh|kash|naqd|nalich|налич)/.test(a), card = /^(card|kart|kard|cart|plastik|uzcard|humo)/.test(a);
+        var w = null, n = 1;
+        if (/^master/.test(a) && /^(card|kart)/.test(b)) { w = 'Master card'; n = 2; }
+        else if (/^master/.test(a)) w = 'Master card';
+        else if (/^(visa|viza)/.test(a) && /^(card|kart)/.test(b)) { w = 'Visa'; n = 2; }
+        else if (/^(visa|viza)/.test(a)) w = 'Visa';
+        else if (cash && USDW.test(b)) { w = 'Cash dollar'; n = 2; }
+        else if (cash && SOM_AFTER_WALLET.test(b)) { w = 'Cash sum'; n = 2; }
+        else if (card && SOM_AFTER_WALLET.test(b)) { w = 'Card sum'; n = 2; }
+        else if (cash && /^pul/.test(b)) { w = 'CASH'; n = 2; }
+        else if (card) w = 'Card sum';
+        else if (cash) w = 'CASH';
+        if (!w) continue;
+        found.push({ w: w, role: roleOf(toks[i + n - 1].t) });
+        for (var j = 0; j < n; j++) toks[i + j].used = true;
+        i += n - 1;
+      }
+      return found;
+    }
+
+    function findNumbers(toks) {
+      var out = [];
+      for (var i = 0; i < toks.length; i++) {
+        if (toks[i].used) continue;
+        var first = numWord(toks[i].t);
+        if (!first) continue;
+        var parts = [first], prev = first, lastScale = first.scale || 0, j = i + 1;
+        while (j < toks.length && !toks[j].used) {
+          var w = toks[j].t, q = numWord(w);
+          if (!q && (w === 'k' || w === 'к') && prev.k !== 'scale') q = { scale: 1e3, k: 'scale' };
+          if (!q && (w === 'm' || w === 'м') && prev.k !== 'scale') q = { scale: 1e6, k: 'scale' };
+          if (!q) break;
+          if (q.k === 'digit' && (prev.k !== 'scale' || q.n >= lastScale)) break;          // "100 12100" — ikki xil son
+          if ((q.k === 'unit' || q.k === 'tens') && prev.k === 'digit') break;
+          if (q.k === 'unit' && prev.k === 'unit') break;
+          if (q.k === 'tens' && (prev.k === 'unit' || prev.k === 'tens')) break;
+          if (q.scale) lastScale = q.scale;
+          parts.push(q); prev = q; j++;
+        }
+        var ent = { v: Math.round(evalNum(parts) * 100) / 100, cur: null };
+        if (i > 0 && toks[i - 1].t === '$') { ent.cur = 'USD'; toks[i - 1].used = true; }
+        if (i > 0 && /^(kurs|курс|rate)/.test(toks[i - 1].t)) { ent.rate = true; toks[i - 1].used = true; }
+        if (j < toks.length && !toks[j].used && USDW.test(toks[j].t)) { ent.cur = 'USD'; j++; }
+        else if (j < toks.length && !toks[j].used && SOM.test(toks[j].t)) { ent.cur = 'UZS'; j++; }
+        if (j < toks.length && !toks[j].used && /^(dan|tan)$/.test(toks[j].t)) { ent.dan = true; j++; }
+        for (var x = i; x < j; x++) toks[x].used = true;
+        out.push(ent);
+        i = j - 1;
+      }
+      return out;
+    }
+
+    function matchCategory(rest, type, ctx) {
+      var lists = type === 'in' ? [['in', ctx.inCats]] : type === 'out' ? [['out', ctx.outCats]] : [['out', ctx.outCats], ['in', ctx.inCats]];
+      var text = ' ' + rest.filter(Boolean).join(' ') + ' ';
+      var syn = {};
+      rest.forEach(function (r, idx) {
+        if (!r) return;
+        Object.keys(SYN).forEach(function (k) {
+          if (r === k || (r.indexOf(k) === 0 && r.length - k.length <= 5 && k.length >= 3)) {
+            var key = clean(SYN[k]); (syn[key] = syn[key] || []).push(idx);
+          }
+        });
+      });
+      var best = null;
+      lists.forEach(function (L) {
+        L[1].forEach(function (name) {
+          if (name === 'Exchange') return;
+          var cn = clean(name), score = 0, used = [], sig = 0, hit = 0;
+          var exact = !!cn && text.indexOf(' ' + cn + ' ') >= 0;
+          cn.split(' ').forEach(function (w0) {
+            if (w0.length < 3 || GENERIC.indexOf(' ' + w0 + ' ') >= 0) return;
+            var w = stem(w0), got = false;
+            sig++;
+            rest.forEach(function (r0, idx) {
+              if (got || !r0 || used.indexOf(idx) >= 0) return;
+              var r = stem(r0);
+              var s = r === w ? 20
+                : (r.length >= 4 && (r.indexOf(w) === 0 || w.indexOf(r) === 0)) ? 15
+                : (w.length >= 5 && r.length >= 4 && lev(r, w) <= (w.length >= 8 ? 2 : 1)) ? 10 : 0;
+              if (s) { score += s; used.push(idx); got = true; }
+            });
+            if (got) hit++;
+          });
+          if (exact) cn.split(' ').forEach(function (w) { var ix = rest.indexOf(w); if (ix >= 0 && used.indexOf(ix) < 0) used.push(ix); });
+          // Asosiy soʻzlari toʻliq aytilgan nom yutadi; koʻproq soʻzi mos kelgani ("lunch with my family") qisqasidan ("Lunch") ustun
+          if (exact || (sig && hit === sig)) score = 100 + 10 * hit + (exact ? 5 : 0);
+          if (syn[cn] && score < 100) { score += 60; used = used.concat(syn[cn]); }
+          if (!score) return;
+          var u = (ctx.usage && ctx.usage[L[0]] && ctx.usage[L[0]][name]) || 0;
+          if (!best || score > best.score || (score === best.score && u > best.u)) best = { name: name, type: L[0], score: score, u: u, used: used };
+        });
+      });
+      return best && best.score >= 10 ? best : null;
+    }
+
+    function parseSeg(raw, ctx) {
+      var toks = tokenize(raw);
+      var e = { type: null, category: null, amount: 0, wallet: null, to: null, rate: null, date: ctx.today, note: '' };
+      toks.forEach(function (k) {
+        var w = k.t;
+        if (/^(exchange|almashtir|ayirbosh|obmen|обмен|konvert|convert)/.test(w)) { e.type = 'exchange'; k.used = true; }
+        else if (/^(kirim|income|tushum|daromad|приход)/.test(w)) { e.type = 'in'; k.used = true; }
+        else if (w === 'chiqim' || w === 'расход') { k.used = true; }
+        else if (w === 'bugun' || w === 'today' || w === 'сегодня') { k.used = true; }
+        else if (w === 'kecha' || w === 'yesterday' || w === 'вчера') { e.date = shift(ctx.today, -1); k.used = true; }
+      });
+      for (var i = 0; i + 1 < toks.length; i++) {
+        if (/^o'?tgan$/.test(toks[i].t) && /^kun/.test(toks[i + 1].t)) { e.date = shift(ctx.today, -2); toks[i].used = toks[i + 1].used = true; }
+      }
+      var ws = findWallets(toks);
+      var distinct = ws.map(function (x) { return x.w; }).filter(function (w, ix, a) { return a.indexOf(w) === ix; });
+      if (!e.type && distinct.length >= 2) e.type = 'exchange';
+      var nums = findNumbers(toks), amt = null, rate = null;
+      nums.forEach(function (n) {
+        if (n.rate || (n.dan && e.type === 'exchange')) rate = rate || n;
+        else if (!amt) amt = n;
+        else if (!rate && e.type === 'exchange') rate = n;
+      });
+      if (!amt) return e;
+      e.amount = amt.v;
+      var cur = amt.cur;
+      if (!cur) { var uw = ws.filter(function (x) { return x.w !== 'CASH'; })[0]; if (uw && e.type !== 'exchange') cur = ctx.isUsd(uw.w) ? 'USD' : 'UZS'; }
+      var cashBy = function (c) { return c === 'USD' ? 'Cash dollar' : 'Cash sum'; };
+
+      if (e.type === 'exchange') {
+        var from = null, to = null;
+        ws.forEach(function (x) { if (x.role === 'to' && !to) to = x; else if (x.role === 'from' && !from) from = x; });
+        ws.forEach(function (x) { if (x !== from && x !== to) { if (!from) from = x; else if (!to) to = x; } });
+        var fw = from ? (from.w === 'CASH' ? cashBy(cur) : from.w) : null;
+        var tw = to ? to.w : null;
+        if (tw === 'CASH') tw = (!fw || fw === 'Cash dollar' || fw === 'Card sum' || fw === 'Cash sum') ? 'Cash sum' : 'Cash dollar';
+        if (!fw && cur === 'USD' && tw !== 'Cash dollar') fw = 'Cash dollar';
+        if (!fw && cur === 'UZS' && tw && tw !== 'Cash sum') fw = 'Cash sum';
+        e.category = 'Exchange'; e.wallet = fw; e.to = tw && tw !== fw ? tw : null;
+        e.rate = rate && rate.v >= 100 ? rate.v : null;
+        return e;
+      }
+      var w0 = ws[0] ? ws[0].w : null;
+      e.wallet = w0 === 'CASH' ? cashBy(cur) : (w0 || (cur === 'USD' ? 'Cash dollar' : null));
+      var rest = toks.map(function (x) { return x.used ? null : x.t; });
+      var m = matchCategory(rest, e.type, ctx);
+      if (m) { e.category = m.name; e.type = e.type || m.type; m.used.forEach(function (ix) { rest[ix] = null; }); }
+      e.type = e.type || 'out';
+      e.note = rest.filter(function (w) { return w && w.length > 1 && STOP.indexOf(' ' + w + ' ') < 0; }).join(' ').slice(0, 80);
+      return e;
+    }
+
+    function parse(text, ctx) {
+      var src = String(text || '')
+        .replace(/\b(hundred|thousand|million|yuz|ming)\s+and\s+/gi, '$1 ')     // "one hundred and twenty"
+        .replace(/\s+and\s+a\s+half\b/gi, ' half')                               // "one and a half million"
+        .replace(/(\d)\s*k\b/gi, '$1k');
+      var parts = src.split(/[;\n]+|,\s+|\.\s+|\s+(?:va|and|hamda|keyin|и)\s+/i)
+        .map(function (x) { return x.trim(); }).filter(Boolean);
+      var segs = [];
+      parts.forEach(function (p) { if (!segs.length || hasNumber(p)) segs.push(p); else segs[segs.length - 1] += ' ' + p; });
+      if (segs.length > 1 && !hasNumber(segs[0])) { segs[1] = segs[0] + ' ' + segs[1]; segs.shift(); }
+      return segs.map(function (s) { return parseSeg(s, ctx); }).filter(function (e) { return e.amount > 0; });
+    }
+    return { parse: parse };
+  })();
+  /* PARSER END */
+
+  function cmdCtx() {
+    return { outCats: D.outCats.map(function (c) { return c.name; }), inCats: D.inCats, usage: D.usage, today: iso(new Date()), isUsd: isUsd };
+  }
+
+  /* ---------- voice ---------- */
+  function normVoice(e) {
+    var t = e.type === 'exchange' ? 'exchange' : (e.type === 'in' ? 'in' : 'out');
+    var x = { type: t, category: t === 'exchange' ? EXCHANGE : (e.category || null), amount: Number(e.amount) || 0,
+      wallet: e.wallet || null, to: e.to || null, rate: Number(e.rate) > 0 ? Number(e.rate) : null,
+      date: /^\d{4}-\d{2}-\d{2}$/.test(e.date || '') ? e.date : iso(new Date()), note: e.note || '' };
+    if (t === 'exchange') {
+      if (!x.wallet) x.wallet = D.exPair ? D.exPair[0] : null;
+      if (!x.to) x.to = D.exPair && D.exPair[1] !== x.wallet ? D.exPair[1] : null;
+      if (x.to === x.wallet) x.to = null;
+      var cross = x.wallet && x.to && isUsd(x.wallet) !== isUsd(x.to);
+      if (!cross) x.rate = null;
+      else if (!x.rate) x.rate = parseFloat(rateFor(x.wallet, x.to)) || null;
+    } else if (!x.wallet) {
+      x.wallet = (x.category && D.favWallet[t] && D.favWallet[t][x.category]) || (D.defaultWallet && D.defaultWallet[t]) || null;
+    }
+    return x;
+  }
+  function voiceMissing(x) {
+    if (!(x.amount > 0)) return 'Summa yoʻq';
+    if (x.type === 'exchange') {
+      if (!x.wallet || !x.to) return 'Hamyonni tanlang';
+      if (isUsd(x.wallet) !== isUsd(x.to) && !(x.rate > 0)) return 'Kursni kiriting';
+      return '';
+    }
+    if (!x.category) return 'Kategoriyani tanlang';
+    if (!x.wallet) return 'Hamyonni tanlang';
+    return '';
+  }
+  function voicePayload(x) {
+    return { type: x.type, date: x.date, category: x.category, amount: round2(x.amount), expr: '', wallet: x.wallet,
+      to: x.type === 'exchange' ? x.to : '', rate: x.type === 'exchange' ? x.rate : null, note: x.note };
+  }
+
+  function renderVoice() {
+    var b = el.voiceBody, h = '';
+    if (V.state === 'rec') {
+      h = '<div class="orb" id="orb">' + ICON.mic + '</div><div class="timer" id="vTimer">0:00</div>' +
+        '<p class="voice-hint">Gapiring, masalan: <q>Medicine 150k cash sum</q> yoki <q>Bozorga ikki yuz ming naqd, taksiga oʻttiz ming kartadan</q></p>' +
+        '<div class="voice-actions"><button class="btn" data-act="voice-cancel">Bekor qilish</button>' +
+        '<button class="btn primary" data-act="voice-stop">Tayyor</button></div>' +
+        '<button class="linkish" data-act="voice-input">Yozib kiritish</button>';
+    } else if (V.state === 'input') {
+      b.innerHTML = (LIVE ? '<button class="btn primary rec-mic" data-act="voice">' + ICON.mic + 'Ovoz yozish</button>' : '') +
+        '<div class="cmd"><textarea id="cmdText" rows="2" enterkeyhint="done" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" ' +
+        'aria-label="Xarajat nomi, summa, hamyon" placeholder="Masalan: medicine 150k cash sum">' + esc(V.text) + '</textarea></div>' +
+        '<div class="cmd-out" id="cmdOut"></div>';
+      renderCmdOut();
+      return;
+    } else if (V.state === 'busy') {
+      h = '<div class="spinner" aria-hidden="true"></div><strong>Tahlil qilinmoqda…</strong>' +
+        '<p class="voice-hint">Ovoz matnga aylantirilib, yozuvlarga ajratilyapti</p>';
+    } else if (V.state === 'error') {
+      h = '<strong>Boʻlmadi</strong><p class="voice-hint">' + esc(V.error) + '</p>' +
+        '<div class="voice-actions"><button class="btn" data-act="voice-input">Yozib kiritish</button>' +
+        '<button class="btn primary" data-act="voice">Qayta yozish</button></div>';
+    } else if (V.state === 'review') {
+      var ready = V.entries.filter(function (x) { return !voiceMissing(x); }).length;
+      h = (V.transcript ? '<p class="transcript">' + esc(V.transcript) + '</p>' : '');
+      if (!V.entries.length) {
+        h += '<p class="voice-hint">Summa topilmadi. Masalan: <q>medicine 150k cash sum</q></p>';
+      } else {
+        h += voiceRows(true);
+      }
+      h += '<div class="voice-actions">' + (V.source === 'text'
+          ? '<button class="btn" data-act="voice-input">Tahrirlash</button>'
+          : '<button class="btn" data-act="voice">Qayta yozish</button>') +
+        '<button class="btn primary" data-act="voice-save"' + (ready && !S.busy ? '' : ' disabled') + '>' +
+        (S.busy ? 'Saqlanmoqda…' : 'Saqlash' + (ready ? ' (' + ready + ')' : '')) + '</button></div>';
+    }
+    b.innerHTML = h;
+  }
+
+  function voiceRows(withDelete) {
+    return '<ul class="v-list">' + V.entries.map(function (x, i) {
+      var k = x.type === 'in' ? 'in' : (x.type === 'exchange' ? 'ex' : 'out');
+      var title = k === 'ex' ? (x.wallet || '?') + ' → ' + (x.to || '?') : (x.category ? String(x.category).trim() : 'Kategoriya?');
+      var miss = voiceMissing(x);
+      var sub = (k === 'ex' ? [x.rate ? esc('kurs ' + fmtNum(x.rate, 2)) : '', esc(ddmm(x.date))]
+        : [x.wallet ? wdot(x.wallet) + esc(x.wallet) : '', esc(ddmm(x.date)), esc(x.note)]).filter(Boolean).join(' · ');
+      if (miss) sub = '<span class="miss">' + esc(miss) + '</span>' + (sub ? ' · ' + sub : '');
+      var amt = x.amount > 0 && x.wallet ? (k === 'in' ? '+' : k === 'out' ? '−' : '') + money(x.amount, x.wallet) : '';
+      return '<li class="rec v' + (withDelete ? '' : ' nox') + '" data-kind="' + k + '" data-vedit="' + i + '"><span class="dot" aria-hidden="true">' +
+        (k === 'ex' ? ICON.ex : (k === 'in' ? '+' : '−')) + '</span>' +
+        '<div class="rec-main"><div class="rec-title">' + esc(title) + '</div><div class="rec-sub">' + sub + '</div></div>' +
+        '<div class="rec-amt">' + esc(amt) + '</div>' +
+        (withDelete ? '<button class="x" data-vdel="' + i + '" aria-label="Olib tashlash">' + ICON.x + '</button>' : '') + '</li>';
+    }).join('') + '</ul><p class="v-tip">Yozuvni bossangiz, formada tahrirlaysiz.</p>';
+  }
+
+  var EXAMPLES = ['medicine 150k cash sum', 'grocery two hundred thousand card sum', 'doctor 50 dollars cash dollar',
+    'medicine 150k cash sum, taxi 30k card sum', "100$ almashtirdim naqd so'mga 12100", 'kirim dividend 1000$'];
+  // Matn yozilayotganda (yoki klaviatura mikrofoni bilan aytilayotganda) natija shu zahoti chiqadi
+  function renderCmdOut() {
+    var box = document.getElementById('cmdOut');
+    if (!box) return;
+    var h = '', ready = V.entries.filter(function (x) { return !voiceMissing(x); }).length;
+    if (!V.text.trim()) {
+      h = '<div class="examples">' + EXAMPLES.map(function (x) {
+          return '<button class="chip" data-example="' + esc(x) + '">' + esc(x) + '</button>'; }).join('') + '</div>' +
+        '<p class="v-tip">Tartib: xarajat nomi (inglizcha), summa, hamyon. ' + dictationTip() + ' ' +
+        'Bir nechta yozuvni vergul yoki “and” bilan ajrating.</p>';
+    } else if (!V.entries.length) {
+      h = '<p class="voice-hint">Summani ham ayting yoki yozing. Masalan: <q>medicine 150k cash sum</q></p>';
+    } else {
+      h = voiceRows(false);
+    }
+    h += '<div class="voice-actions"><button class="btn" data-act="cmd-clear"' + (V.text ? '' : ' disabled') + '>Tozalash</button>' +
+      '<button class="btn primary" data-act="voice-save"' + (ready && !S.busy ? '' : ' disabled') + '>' +
+      (S.busy ? 'Saqlanmoqda…' : 'Saqlash' + (ready ? ' (' + ready + ')' : '')) + '</button></div>';
+    box.innerHTML = h;
+  }
+  // Ovoz bilan yozish qurilmaning oʻz diktovkasi orqali: qaysi tugma bosilishini qurilmaga qarab aytamiz
+  function dictationTip() {
+    var ua = navigator.userAgent || '', pf = navigator.platform || '';
+    var touch = 'ontouchend' in document;
+    if (/Mac/.test(pf) && !touch) return 'Ovoz bilan: maydonni bosing, <b>fn</b> tugmasini ikki marta (yoki yuqoridagi mikrofonli F5 ni) bosing va gapiring.';
+    if (/Win/.test(pf)) return 'Ovoz bilan: maydonni bosing, <b>Win + H</b> ni bosing va gapiring.';
+    if (/iPhone|iPad|Android/.test(ua) || touch) return 'Ovoz bilan: klaviaturadagi <b>mikrofon</b> tugmasini bosib gapiring.';
+    return 'Ovoz bilan: kompyuteringizning diktovka funksiyasini yoqib gapiring.';
+  }
+  function updateCmd(text) {
+    V.text = text;
+    V.entries = CMD.parse(text, cmdCtx()).map(normVoice);
+    V.transcript = text; V.source = 'text';
+    renderCmdOut();
+  }
+
+  function renderPending() {
+    var n = V.entries.length;
+    el.pending.hidden = V.open || V.state !== 'review' || !n;
+    el.pending.innerHTML = '<span>Ovozdan yana ' + n + ' ta yozuv</span><span>Koʻrish</span>';
+  }
+
+  function openVoiceSheet() {
+    V.open = true; el.voiceSheet.hidden = false; el.sheetBg.hidden = false;
+    if (IN_TG) { try { tg.BackButton.show(); } catch (e) {} }
+    renderVoice(); renderPending(); renderSave();
+  }
+  function closeVoiceSheet() {
+    if (V.state === 'rec') stopRecording(false);
+    if (V.state === 'busy') return;
+    V.open = false; el.voiceSheet.hidden = true; el.sheetBg.hidden = true;
+    if (V.state !== 'review' || !V.entries.length) { V.state = 'idle'; V.entries = []; V.transcript = ''; V.text = ''; }
+    if (IN_TG && !S.sheetOpen) { try { tg.BackButton.hide(); } catch (e) {} }
+    renderPending(); renderSave();
+  }
+
+  function voiceFail(msg) { V.state = 'error'; V.error = msg; haptic('error'); renderVoice(); }
+
+  function startVoice() {
+    if (!S.ready || S.busy) return;
+    V.entries = []; V.transcript = ''; V.cancelled = false;
+    if (!LIVE) return showInput();
+    var md = navigator.mediaDevices;
+    if (!md || !md.getUserMedia || !window.MediaRecorder) { V.state = 'error'; openVoiceSheet(); return voiceFail('Bu qurilmada Telegram ichida ovoz yozib boʻlmaydi. Telegramni yangilab koʻring.'); }
+    var AC = window.AudioContext || window.webkitAudioContext;
+    try { V.ac = AC ? new AC() : null; } catch (e) { V.ac = null; }
+    V.state = 'rec'; openVoiceSheet();
+    md.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } }).then(function (stream) {
+      if (V.state !== 'rec') { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+      V.stream = stream; V.chunks = [];
+      V.rec = new MediaRecorder(stream);
+      V.rec.ondataavailable = function (e) { if (e.data && e.data.size) V.chunks.push(e.data); };
+      V.rec.onstop = onRecorded;
+      V.rec.start(250);
+      V.t0 = Date.now(); tickTimer();
+      if (V.ac) {
+        try {
+          if (V.ac.resume) V.ac.resume();
+          V.analyser = V.ac.createAnalyser(); V.analyser.fftSize = 512;
+          V.ac.createMediaStreamSource(stream).connect(V.analyser);
+          meter();
+        } catch (e) {}
+      }
+      haptic('light');
+    }).catch(function (e) {
+      var denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+      voiceFail(denied ? 'Mikrofonga ruxsat berilmadi. Telefon sozlamalarida Telegram uchun mikrofonni yoqing.' : 'Mikrofon ochilmadi: ' + (e && e.message || e));
+      cleanupAudio();
+    });
+  }
+
+  function tickTimer() {
+    clearInterval(V.timer);
+    V.timer = setInterval(function () {
+      var s = Math.floor((Date.now() - V.t0) / 1000);
+      var t = document.getElementById('vTimer');
+      if (t) t.textContent = Math.floor(s / 60) + ':' + (s % 60 < 10 ? '0' : '') + (s % 60);
+      if (s >= VOICE_MAX_SEC) stopRecording(true);
+    }, 200);
+  }
+  function meter() {
+    var buf = new Uint8Array(V.analyser.fftSize);
+    (function loop() {
+      if (V.state !== 'rec' || !V.analyser) return;
+      V.analyser.getByteTimeDomainData(buf);
+      var sum = 0;
+      for (var i = 0; i < buf.length; i++) { var d = (buf[i] - 128) / 128; sum += d * d; }
+      var o = document.getElementById('orb');
+      if (o) o.style.setProperty('--lvl', (1 + Math.min(0.35, Math.sqrt(sum / buf.length) * 2.2)).toFixed(3));
+      V.raf = requestAnimationFrame(loop);
+    })();
+  }
+  function cleanupAudio() {
+    clearInterval(V.timer); cancelAnimationFrame(V.raf);
+    if (V.stream) V.stream.getTracks().forEach(function (t) { t.stop(); });
+    if (V.ac && V.ac.close) { try { V.ac.close(); } catch (e) {} }
+    V.stream = null; V.ac = null; V.analyser = null;
+  }
+
+  function stopRecording(send) {
+    if (V.state !== 'rec') return;
+    V.cancelled = !send;
+    clearInterval(V.timer);
+    V.state = send ? 'busy' : 'idle';
+    if (send) { renderVoice(); haptic('light'); }
+    if (V.rec && V.rec.state !== 'inactive') V.rec.stop(); else { cleanupAudio(); if (send) voiceFail('Ovoz yozilmadi. Qayta urinib koʻring.'); }
+  }
+
+  function onRecorded() {
+    var type = (V.rec && V.rec.mimeType) || (V.chunks[0] && V.chunks[0].type) || 'audio/webm';
+    var blob = new Blob(V.chunks, { type: type });
+    cleanupAudio();
+    if (V.cancelled) return;
+    if (blob.size < 1500) return voiceFail('Ovoz juda qisqa. Tugmani bosib, gapirib boʻlgach “Tayyor” ni bosing.');
+    toWav16k(blob).then(function (wav) { return { blob: wav, mime: 'audio/wav' }; }, function () { return { blob: blob, mime: type.split(';')[0] }; })
+      .then(function (a) { return blobToBase64(a.blob).then(function (b64) { return api('voice', { audio: b64, mime: a.mime }); }); })
+      .then(function (r) { showVoiceResult(r, 'voice'); })
+      .catch(function (e) { voiceFail(e.message || String(e)); });
+  }
+
+  function showVoiceResult(r, source) {
+    V.source = source || 'voice';
+    V.transcript = r.transcript || '';
+    var raw = r.entries || [];
+    if (V.source === 'voice' && V.transcript) {
+      // Gemini boʻsh qoldirgan joyni telefon ichidagi tahlil bilan toʻldiramiz ("medicine 150k cash sum" kabi qisqa gaplar)
+      var local = CMD.parse(V.transcript, cmdCtx());
+      if (!raw.length) raw = local;
+      else if (local.length === raw.length) raw.forEach(function (x, i) {
+        var l = local[i];
+        if ((x.type || 'out') !== l.type) return;
+        if (!x.category && l.category) x.category = l.category;
+        if (!x.wallet && l.wallet) x.wallet = l.wallet;
+        if (!(Number(x.amount) > 0) && l.amount > 0) x.amount = l.amount;
+      });
+    }
+    V.entries = raw.map(normVoice);
+    V.state = 'review';
+    haptic(V.entries.length ? 'success' : 'warning');
+    if (!V.open) openVoiceSheet(); else renderVoice();
+    renderPending();
+  }
+
+  function showInput() {
+    if (V.state === 'rec') stopRecording(false);
+    V.state = 'input';
+    V.entries = V.text ? CMD.parse(V.text, cmdCtx()).map(normVoice) : [];
+    if (!V.open) openVoiceSheet(); else renderVoice();
+    renderPending();
+    var ta = document.getElementById('cmdText');
+    if (ta) { ta.focus(); try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {} }
+  }
+  // Har qanday yozuvni 16 kHz mono WAV ga aylantiradi: hajmi kichik va AI xizmati aniq qabul qiladi.
+  function toWav16k(blob) {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (!AC || !OAC) return Promise.reject(new Error('no audio api'));
+    return blob.arrayBuffer().then(function (buf) {
+      var ac = new AC();
+      return new Promise(function (res, rej) { ac.decodeAudioData(buf, res, rej); })
+        .then(function (decoded) { try { ac.close(); } catch (e) {} return decoded; });
+    }).then(function (decoded) {
+      var rate = 16000, len = Math.max(1, Math.ceil(decoded.duration * rate));
+      var off = new OAC(1, len, rate);
+      var src = off.createBufferSource(); src.buffer = decoded; src.connect(off.destination); src.start(0);
+      return new Promise(function (res) {
+        off.oncomplete = function (e) { res(e.renderedBuffer); };
+        var p = off.startRendering(); if (p && p.then) p.then(res);
+      });
+    }).then(function (rendered) {
+      var pcm = rendered.getChannelData(0), n = pcm.length;
+      var view = new DataView(new ArrayBuffer(44 + n * 2));
+      var w = function (o, s) { for (var i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
+      w(0, 'RIFF'); view.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+      view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+      view.setUint32(24, 16000, true); view.setUint32(28, 32000, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+      w(36, 'data'); view.setUint32(40, n * 2, true);
+      for (var i = 0; i < n; i++) { var s = Math.max(-1, Math.min(1, pcm[i])); view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true); }
+      return new Blob([view], { type: 'audio/wav' });
+    });
+  }
+  function blobToBase64(blob) {
+    return new Promise(function (res, rej) {
+      var fr = new FileReader();
+      fr.onload = function () { res(String(fr.result).split(',')[1] || ''); };
+      fr.onerror = function () { rej(new Error('Ovozni oʻqib boʻlmadi')); };
+      fr.readAsDataURL(blob);
+    });
+  }
+
+  function saveVoiceAll() {
+    if (S.busy) return;
+    var queue = V.entries.filter(function (x) { return !voiceMissing(x); });
+    if (!queue.length) return;
+    S.busy = true; if (V.state === 'input') renderCmdOut(); else renderVoice(); renderSave();
+    var saved = 0;
+    var next = function () {
+      var x = queue.shift();
+      if (!x) return Promise.resolve();
+      return persist(voicePayload(x)).then(function () {
+        saved++;
+        V.entries = V.entries.filter(function (y) { return y !== x; });
+        if (V.state === 'input') renderCmdOut(); else renderVoice();
+        return next();
+      });
+    };
+    next().then(function () {
+      S.busy = false;
+      toast(saved + ' ta yozuv saqlandi' + (V.entries.length ? ', ' + V.entries.length + ' tasini toʻldiring' : ''), 'ok', saved === 1);
+      haptic('success');
+      if (!V.entries.length) { V.text = ''; closeVoiceSheet(); } else if (V.state === 'input') renderCmdOut(); else renderVoice();
+    }).catch(function (e) {
+      S.busy = false;
+      toast((saved ? saved + ' ta saqlandi, qolgani saqlanmadi. ' : 'Saqlanmadi. ') + e.message, 'error');
+      haptic('error');
+      if (V.state === 'input') renderCmdOut(); else renderVoice();
+    }).then(function () { render(); });
+  }
+
+  function editVoiceEntry(i) {
+    var x = V.entries[i];
+    if (!x || S.busy) return;
+    V.entries.splice(i, 1);
+    S.mode = x.type === 'exchange' ? 'ex' : x.type;
+    S.amount = x.amount > 0 ? String(round2(x.amount)) : '';
+    S.focus = 'amount';
+    S.date = x.date;
+    el.note.value = x.note || '';
+    if (x.type === 'exchange') {
+      if (x.wallet) S.from = x.wallet;
+      if (x.to && x.to !== S.from) S.to = x.to;
+      S.rate = x.rate ? String(x.rate) : rateFor(S.from, S.to);
+    } else {
+      S.cat[S.mode] = x.category;
+      if (x.wallet) { S.wallet[S.mode] = x.wallet; S.touched[S.mode] = true; }
+    }
+    V.open = false; el.voiceSheet.hidden = true; el.sheetBg.hidden = true;
+    if (IN_TG) { try { tg.BackButton.hide(); } catch (e) {} }
+    if (!V.entries.length) { V.state = 'idle'; V.text = ''; }
+    else if (V.state === 'input') { V.state = 'review'; V.transcript = V.text; V.source = 'text'; }
+    haptic('select');
+    render();
+    el.scroll.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function undo() {
+    var r = S.lastSaved;
+    if (!r || S.busy) return;
+    S.busy = true; renderSave();
+    var p = LIVE ? api('undo', { ref: { sheet: r.sheet, row: r.row, cat: r.cat, amount: r.amount } }) : demoUndo(r);
+    p.then(function (res) {
+      D.balances = res.balances;
+      D.recent = D.recent.filter(function (x) { return x !== r; });
+      S.lastSaved = null;
+      toast('Yozuv sheetdan olib tashlandi', 'ok');
+      haptic('warning');
+    }).catch(function (e) {
+      toast('Bekor qilinmadi. ' + e.message, 'error');
+    }).then(function () { S.busy = false; render(); });
+  }
+
+  function toast(text, kind, withUndo) {
+    clearTimeout(toastTimer);
+    el.toast.className = 'toast' + (kind === 'error' ? ' error' : '');
+    el.toast.innerHTML = '<span>' + esc(text) + '</span>' + (withUndo ? '<button data-act="undo">Bekor qilish</button>' : '');
+    el.toast.hidden = false;
+    toastTimer = setTimeout(function () { el.toast.hidden = true; }, kind === 'error' ? 7000 : 4500);
+  }
+
+  /* ---------- category sheet ---------- */
+  function renderSheetList() {
+    var q = el.search.value.trim().toLowerCase();
+    var tips = {};
+    D.outCats.forEach(function (c) { tips[c.name] = c.tip; });
+    var sel = S.cat[S.mode];
+    var names = catNames(S.mode).filter(function (n) { return !q || n.toLowerCase().indexOf(q) >= 0; });
+    el.catList.innerHTML = names.length ? names.map(function (n) {
+      var tip = S.mode === 'out' && tips[n] ? tips[n].replace(' expenses', '') : '';
+      return '<li><button data-cat="' + esc(n) + '" aria-pressed="' + (n === sel) + '"><span>' + esc(n.trim()) + '</span>' +
+        (tip ? '<span class="cat-tip">' + esc(tip) + '</span>' : '') + '</button></li>';
+    }).join('') : '<li class="empty-note" style="padding:14px 2px">Topilmadi. Yangi kategoriyani sheetdagi “List of items” varagʻiga qoʻshing.</li>';
+  }
+  function openSheet() {
+    S.sheetOpen = true; el.search.value = ''; renderSheetList();
+    el.sheet.hidden = false; el.sheetBg.hidden = false;
+    if (IN_TG) { try { tg.BackButton.show(); } catch (e) {} }
+    renderSave();
+  }
+  function closeSheet() {
+    S.sheetOpen = false; el.sheet.hidden = true; el.sheetBg.hidden = true;
+    if (IN_TG) { try { tg.BackButton.hide(); } catch (e) {} }
+    renderSave();
+  }
+
+  /* ---------- events ---------- */
+  document.getElementById('app').addEventListener('click', function (e) {
+    var t = e.target.closest('[data-k],[data-set-mode],[data-w],[data-cat],[data-date],[data-field],[data-act],[data-vdel],[data-vedit],[data-example]');
+    if (!t || t.disabled) return;
+    if (t.hasAttribute('data-k')) return press(t.getAttribute('data-k'));
+    if (t.hasAttribute('data-set-mode')) return setMode(t.getAttribute('data-set-mode'));
+    if (t.hasAttribute('data-w')) return pickWallet(t.getAttribute('data-w'), t.getAttribute('data-role'));
+    if (t.hasAttribute('data-cat')) { var n = t.getAttribute('data-cat'); if (S.sheetOpen) closeSheet(); return pickCat(n); }
+    if (t.hasAttribute('data-date')) { S.date = t.getAttribute('data-date'); haptic('select'); return renderDates(); }
+    if (t.hasAttribute('data-field')) { S.focus = t.getAttribute('data-field'); haptic('select'); renderAmount(); return renderKeypad(); }
+    var act = t.getAttribute('data-act');
+    if (act === 'open-sheet') return openSheet();
+    if (act === 'close-sheet') return closeSheet();
+    if (act === 'undo') { el.toast.hidden = true; return undo(); }
+    if (act === 'swap') { var f = S.from; S.from = S.to; S.to = f; S.rate = rateFor(S.from, S.to); haptic('select'); return render(); }
+    if (act === 'retry') return boot();
+    if (act === 'voice') { if (V.state === 'rec') return; return startVoice(); }
+    if (act === 'voice-input') return showInput();
+    if (act === 'cmd-clear') { updateCmd(''); var c = document.getElementById('cmdText'); if (c) { c.value = ''; c.focus(); } return; }
+    if (t.hasAttribute('data-example')) {
+      var ex = t.getAttribute('data-example'), ta = document.getElementById('cmdText');
+      if (ta) ta.value = ex;
+      haptic('select');
+      return updateCmd(ex);
+    }
+    if (act === 'voice-stop') return stopRecording(true);
+    if (act === 'voice-cancel' || act === 'voice-close') return closeVoiceSheet();
+    if (act === 'voice-save') return saveVoiceAll();
+    if (act === 'voice-review') return openVoiceSheet();
+    if (t.hasAttribute('data-vdel')) { if (!S.busy) { V.entries.splice(+t.getAttribute('data-vdel'), 1); haptic('select'); renderVoice(); } return; }
+    if (t.hasAttribute('data-vedit')) return editVoiceEntry(+t.getAttribute('data-vedit'));
+  });
+  function closeTop() { if (V.open) closeVoiceSheet(); else if (S.sheetOpen) closeSheet(); }
+  el.sheetBg.addEventListener('click', closeTop);
+  el.voiceBody.addEventListener('input', function (e) { if (e.target.id === 'cmdText') updateCmd(e.target.value); });
+  el.voiceBody.addEventListener('keydown', function (e) {
+    if (e.target.id === 'cmdText' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.blur(); }
+  });
+
+  // iPhone: klaviatura ochilganda pastdagi oynani klaviatura ustiga koʻtaramiz
+  function fitSheetsToKeyboard() {
+    var vv = window.visualViewport;
+    if (!vv) return;
+    var kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    [el.sheet, el.voiceSheet].forEach(function (sh) {
+      sh.style.bottom = kb > 80 ? kb + 'px' : '';
+      sh.style.maxHeight = kb > 80 ? Math.round(vv.height - 8) + 'px' : '';
+    });
+  }
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitSheetsToKeyboard);
+    window.visualViewport.addEventListener('scroll', fitSheetsToKeyboard);
+  }
+  el.save.addEventListener('click', save);
+  el.search.addEventListener('input', renderSheetList);
+  el.dates.addEventListener('change', function (e) {
+    if (e.target.id === 'dateInput' && e.target.value) { S.date = e.target.value; renderDates(); }
+  });
+  el.note.addEventListener('keydown', function (e) { if (e.key === 'Enter') el.note.blur(); });
+  document.addEventListener('keydown', function (e) {
+    var tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || S.sheetOpen || V.open) { if (e.key === 'Escape') closeTop(); return; }
+    if (/^[0-9]$/.test(e.key)) press(e.key);
+    else if (e.key === 'Backspace') press('back');
+    else if (e.key === '+') press('+');
+    else if (e.key === '.' || e.key === ',') press('.');
+    else if (e.key === 'Enter') save();
+    else return;
+    e.preventDefault();
+  });
+
+  /* ---------- telegram + boot ---------- */
+  function syncTgHeader() {
+    if (!tg) return;
+    try { tg.setHeaderColor(cssVar('--wash')); } catch (e) {}
+  }
+  function setupTelegram() {
+    if (!tg) return;
+    try { tg.ready(); tg.expand(); } catch (e) {}
+    try { if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch (e) {}
+    var theme = function () {
+      if (tg.colorScheme) document.documentElement.setAttribute('data-theme', tg.colorScheme);
+      syncTgHeader();
+      try { tg.setBackgroundColor(cssVar('--bg')); } catch (e) {}
+      try { if (tg.setBottomBarColor) tg.setBottomBarColor(cssVar('--surface')); } catch (e) {}
+      if (S.ready) renderSave();
+    };
+    theme();
+    try { tg.onEvent('themeChanged', theme); } catch (e) {}
+    if (IN_TG) {
+      try { tg.MainButton.onClick(save); } catch (e) {}
+      try { tg.BackButton.onClick(closeTop); } catch (e) {}
+    }
+  }
+
+  function showState(kind, msg) {
+    el.form.hidden = kind !== 'ready';
+    el.state.hidden = kind === 'ready';
+    if (kind === 'loading') el.state.innerHTML = '<strong>Sheet yuklanmoqda…</strong><span>Hamyonlar va kategoriyalar olinmoqda</span>';
+    if (kind === 'error') el.state.innerHTML = '<strong>Sheetga ulanib boʻlmadi</strong><span>' + esc(msg) + '</span><button data-act="retry">Qayta urinish</button>';
+  }
+
+  function setDefaults() {
+    S.date = iso(new Date());
+    S.wallet.out = (D.defaultWallet && D.defaultWallet.out) || D.wallets[0];
+    S.wallet.in = (D.defaultWallet && D.defaultWallet.in) || D.wallets[0];
+    var pair = D.exPair && D.exPair.length === 2 ? D.exPair : [D.wallets[1] || D.wallets[0], D.wallets[0]];
+    S.from = pair[0]; S.to = pair[1];
+    S.rate = rateFor(S.from, S.to);
+    D.pairRate = D.pairRate || {};
+  }
+
+  function boot() {
+    S.ready = false;
+    if (!LIVE) {
+      D = demoData();
+      el.demo.hidden = false;
+      setDefaults(); S.ready = true; showState('ready'); render();
+      return;
+    }
+    showState('loading'); render();
+    api('init').then(function (r) {
+      D = r; setDefaults(); S.ready = true; showState('ready'); render();
+    }).catch(function (e) {
+      showState('error', e.message); render();
+    });
+  }
+
+  setupTelegram();
+  boot();
+})();
+</script>
+</body>
+</html>
