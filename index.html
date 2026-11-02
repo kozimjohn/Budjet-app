@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="color-scheme" content="light">
 <title>Personal Budjet</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -55,6 +56,8 @@
   --w-cash-sum: #4CC0A4; --w-card-sum: #86A6F2; --w-cash-usd: #AAC867; --w-visa: #96A3F2; --w-master: #F08C58;
   color-scheme: dark;
 }
+/* Ilova doim yorugʻ fonda: Telegram yoki telefon tungi rejimda boʻlsa ham */
+:root[data-theme="light"] { color-scheme: light; }
 body[data-mode="out"] { --wash: var(--wash-out); }
 body[data-mode="in"] { --accent: var(--in); --wash: var(--wash-in); }
 body[data-mode="ex"] { --accent: var(--ex); --wash: var(--wash-ex); }
@@ -195,6 +198,13 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
 .dock { flex: none; position: relative; background: var(--surface); border-top: 1px solid var(--line);
   padding-block: 8px calc(8px + env(safe-area-inset-bottom, 0px)); padding-left: var(--gut-l); padding-right: var(--gut-r); }
 .keypad { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.dock.empty { padding: 0; border-top: 0; }
+.keypad.show { animation: kb-in .18s ease-out; }
+@keyframes kb-in { from { transform: translateY(16px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .keypad.show { animation: none; } }
+.amount { cursor: pointer; }
+.amount:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.amt-hint .tap { color: var(--accent); font-weight: 600; }
 .keypad button { height: 48px; border-radius: 12px; background: var(--sunken); font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums;
   display: grid; place-items: center; transition: transform .06s; }
 .keypad button:active { transform: scale(.96); background: var(--line); }
@@ -308,6 +318,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     </div>
     <button class="pending" id="pendingBtn" data-act="voice-review" hidden></button>
     <p class="demo" id="demoNote" hidden><b>Namuna rejimi.</b> Maʼlumot sheetga yozilmaydi.</p>
+    <p class="demo" id="syncNote" hidden>Sheetdan yangilanmoqda…</p>
   </header>
 
   <main class="scroll" id="scroll">
@@ -326,7 +337,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
 
   <footer class="dock" id="dock">
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
-    <div class="keypad" id="keypad">
+    <div class="keypad" id="keypad" hidden>
       <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
       <button data-k="back" class="op" aria-label="Oxirgi raqamni oʻchirish"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6-7z"/><path d="m12.5 9.5 5 5m0-5-5 5"/></svg></button>
       <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
@@ -369,6 +380,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
   var USD_WALLETS = ['Cash dollar', 'Visa', 'Master card'];
   var EXCHANGE = 'Exchange';
 
+  document.documentElement.setAttribute('data-theme', 'light');   // doim yorugʻ fon
   var tg = (window.Telegram && window.Telegram.WebApp) || null;
   var IN_TG = !!(tg && tg.initData);
   var LIVE = !!(API_URL && IN_TG);
@@ -379,7 +391,8 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     dates: $('#dates'), note: $('#note'), recent: $('#recentBlock'), keypad: $('#keypad'), save: $('#saveBtn'),
     toast: $('#toast'), sheet: $('#catSheet'), sheetBg: $('#sheetBg'), search: $('#catSearch'), catList: $('#catList'),
     demo: $('#demoNote'), scroll: $('#scroll'),
-    voiceSheet: $('#voiceSheet'), voiceBody: $('#voiceBody'), mic: $('#micBtn'), pending: $('#pendingBtn')
+    voiceSheet: $('#voiceSheet'), voiceBody: $('#voiceBody'), mic: $('#micBtn'), pending: $('#pendingBtn'),
+    sync: $('#syncNote'), dock: $('#dock')
   };
   var VOICE_MAX_SEC = 60;
   // Ovoz holati: idle | input | rec | busy | review | error
@@ -390,7 +403,9 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     mode: 'out', amount: '', rate: '', focus: 'amount',
     wallet: { out: null, in: null }, touched: { out: false, in: false },
     cat: { out: null, in: null }, from: null, to: null,
-    date: null, busy: false, ready: false, lastSaved: null, sheetOpen: false
+    date: null, busy: false, ready: false, lastSaved: null, sheetOpen: false,
+    kb: false,      // raqam klaviaturasi ochiqmi (summa bosilganda ochiladi)
+    stale: false    // telefondagi oxirgi nusxa koʻrsatilyapti, sheetdan yangisi kelyapti
   };
   var D = null;
   var toastTimer = null;
@@ -555,7 +570,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
 
   function renderAmount() {
     var amt = total(S.amount);
-    var caret = '<span class="caret" aria-hidden="true"></span>';
+    var caret = S.kb ? '<span class="caret" aria-hidden="true"></span>' : '';
     if (S.mode === 'ex') {
       var cross = isUsd(S.from) !== isUsd(S.to);
       var rate = parseFloat(S.rate);
@@ -585,7 +600,8 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       hint.push('<span>Qoldiq: ' + esc(money(after, w)) + '</span>');
     }
     if (S.mode === 'in' && w && !usd && D.lastRate) hint.push('<span>kurs ' + esc(fmtNum(D.lastRate, 2)) + ' bilan</span>');
-    el.amount.innerHTML = '<div class="amount"><div class="lbl-row"><span class="lbl">' + (S.mode === 'in' ? 'Kirim summasi' : 'Chiqim summasi') + '</span></div>' +
+    if (!S.kb && !(amt > 0)) hint.push('<span class="tap">Summani kiritish uchun bosing</span>');
+    el.amount.innerHTML = '<div class="amount" data-act="kb-open" role="button" tabindex="0" aria-label="Summani kiritish"><div class="lbl-row"><span class="lbl">' + (S.mode === 'in' ? 'Kirim summasi' : 'Chiqim summasi') + '</span></div>' +
       '<div class="amt' + (long ? ' long' : '') + (S.amount ? '' : ' empty') + '">' +
       (usd ? '<span class="amt-cur">$</span>' : '') + '<span class="amt-val">' + showExpr(S.amount) + '</span>' + caret +
       (usd ? '' : '<span class="amt-cur">soʻm</span>') + '</div>' +
@@ -668,10 +684,25 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
   }
 
   function renderKeypad() {
+    var show = S.kb && S.ready;
+    if (show && el.keypad.hidden) { el.keypad.classList.remove('show'); void el.keypad.offsetWidth; el.keypad.classList.add('show'); }
+    el.keypad.hidden = !show;
+    el.dock.classList.toggle('empty', IN_TG && !show);   // Telegramda saqlash tugmasi alohida: klaviatura yopiq boʻlsa panel boʻsh qoladi (xabarlar baribir koʻrinadi)
     var rateField = S.mode === 'ex' && S.focus === 'rate';
     var plus = el.keypad.querySelector('[data-k="+"]');
     plus.disabled = rateField || !S.ready;
     Array.prototype.forEach.call(el.keypad.querySelectorAll('button'), function (b) { if (b !== plus) b.disabled = !S.ready; });
+  }
+
+  function openKb() {
+    if (!S.ready) return;
+    S.kb = true; renderAmount(); renderKeypad();
+    var card = el.amount.firstElementChild;
+    if (card && card.scrollIntoView) card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+  function closeKb() {
+    if (!S.kb) return;
+    S.kb = false; renderAmount(); renderKeypad();
   }
 
   function renderSave() {
@@ -772,7 +803,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     }
     S.busy = true; renderSave();
     persist(entry).then(function () {
-      S.amount = ''; S.focus = 'amount'; el.note.value = '';
+      S.amount = ''; S.focus = 'amount'; el.note.value = ''; S.kb = false;
       var label = entry.type === 'exchange' ? entry.wallet + ' → ' + entry.to : String(entry.category).trim();
       toast('Saqlandi: ' + label + ', ' + money(entry.amount, entry.wallet), 'ok', true);
       haptic('success');
@@ -794,6 +825,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       S.lastSaved = r.saved;
       if (entry.type === 'exchange' && entry.rate) { D.pairRate[entry.wallet + '>' + entry.to] = entry.rate; D.lastRate = entry.rate; }
       if (entry.type !== 'exchange') { var u = D.usage[entry.type]; u[entry.category] = (u[entry.category] || 0) + 1; }
+      writeCache();
       return r.saved;
     });
   }
@@ -1418,6 +1450,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       D.balances = res.balances;
       D.recent = D.recent.filter(function (x) { return x !== r; });
       S.lastSaved = null;
+      writeCache();
       toast('Yozuv sheetdan olib tashlandi', 'ok');
       haptic('warning');
     }).catch(function (e) {
@@ -1460,6 +1493,8 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
 
   /* ---------- events ---------- */
   document.getElementById('app').addEventListener('click', function (e) {
+    // Summa va klaviaturadan tashqari joy bosilsa, klaviatura yopiladi (kategoriyalar toʻliq koʻrinadi)
+    if (S.kb && !e.target.closest('#dock, .amount, .field')) closeKb();
     var t = e.target.closest('[data-k],[data-set-mode],[data-w],[data-cat],[data-date],[data-field],[data-act],[data-vdel],[data-vedit],[data-example]');
     if (!t || t.disabled) return;
     if (t.hasAttribute('data-k')) return press(t.getAttribute('data-k'));
@@ -1467,13 +1502,14 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (t.hasAttribute('data-w')) return pickWallet(t.getAttribute('data-w'), t.getAttribute('data-role'));
     if (t.hasAttribute('data-cat')) { var n = t.getAttribute('data-cat'); if (S.sheetOpen) closeSheet(); return pickCat(n); }
     if (t.hasAttribute('data-date')) { S.date = t.getAttribute('data-date'); haptic('select'); return renderDates(); }
-    if (t.hasAttribute('data-field')) { S.focus = t.getAttribute('data-field'); haptic('select'); renderAmount(); return renderKeypad(); }
+    if (t.hasAttribute('data-field')) { S.focus = t.getAttribute('data-field'); haptic('select'); return openKb(); }
     var act = t.getAttribute('data-act');
     if (act === 'open-sheet') return openSheet();
     if (act === 'close-sheet') return closeSheet();
     if (act === 'undo') { el.toast.hidden = true; return undo(); }
     if (act === 'swap') { var f = S.from; S.from = S.to; S.to = f; S.rate = rateFor(S.from, S.to); haptic('select'); return render(); }
     if (act === 'retry') return boot();
+    if (act === 'kb-open') { haptic('select'); return openKb(); }
     if (act === 'voice') { if (V.state === 'rec') return; return startVoice(); }
     if (act === 'voice-input') return showInput();
     if (act === 'cmd-clear') { updateCmd(''); var c = document.getElementById('cmdText'); if (c) { c.value = ''; c.focus(); } return; }
@@ -1520,6 +1556,9 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
   document.addEventListener('keydown', function (e) {
     var tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'input' || S.sheetOpen || V.open) { if (e.key === 'Escape') closeTop(); return; }
+    if (e.key === 'Escape') { closeKb(); return; }
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('amount')) { e.preventDefault(); openKb(); return; }
+    if (/^[0-9]$/.test(e.key) && !S.kb) openKb();
     if (/^[0-9]$/.test(e.key)) press(e.key);
     else if (e.key === 'Backspace') press('back');
     else if (e.key === '+') press('+');
@@ -1539,7 +1578,6 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     try { tg.ready(); tg.expand(); } catch (e) {}
     try { if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch (e) {}
     var theme = function () {
-      if (tg.colorScheme) document.documentElement.setAttribute('data-theme', tg.colorScheme);
       syncTgHeader();
       try { tg.setBackgroundColor(cssVar('--bg')); } catch (e) {}
       try { if (tg.setBottomBarColor) tg.setBottomBarColor(cssVar('--surface')); } catch (e) {}
@@ -1570,19 +1608,58 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     D.pairRate = D.pairRate || {};
   }
 
+  // Oxirgi maʼlumot telefonda saqlanadi: ilova darhol ochiladi, sheetdan yangisi orqa fonda keladi
+  var CACHE_KEY = 'pb-init-v1:' + API_URL;
+  function readCache() {
+    try { var j = localStorage.getItem(CACHE_KEY); var d = j ? JSON.parse(j) : null; return d && d.wallets && d.outCats ? d : null; }
+    catch (e) { return null; }
+  }
+  function writeCache() {
+    if (!LIVE || !D) return;
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify(D)); } catch (e) {}
+  }
+  // Yangi maʼlumot kelganda foydalanuvchi tanlab turganlarini saqlab qolamiz
+  function keepSelections() {
+    D.pairRate = D.pairRate || {};
+    ['out', 'in'].forEach(function (m) {
+      if (D.wallets.indexOf(S.wallet[m]) < 0) S.wallet[m] = (D.defaultWallet && D.defaultWallet[m]) || D.wallets[0];
+    });
+    var outNames = D.outCats.map(function (c) { return c.name; });
+    if (S.cat.out && outNames.indexOf(S.cat.out) < 0) S.cat.out = null;
+    if (S.cat.in && D.inCats.indexOf(S.cat.in) < 0) S.cat.in = null;
+    if (D.wallets.indexOf(S.from) < 0 || D.wallets.indexOf(S.to) < 0) { var pr = D.exPair || [D.wallets[1], D.wallets[0]]; S.from = pr[0]; S.to = pr[1]; }
+    if (S.lastSaved) {
+      var ls = S.lastSaved, match = null;
+      D.recent.forEach(function (x) { if (!match && x.sheet === ls.sheet && x.row === ls.row) match = x; });
+      S.lastSaved = match;
+    }
+  }
+
   function boot() {
-    S.ready = false;
+    S.ready = false; S.kb = false;
     if (!LIVE) {
       D = demoData();
       el.demo.hidden = false;
       setDefaults(); S.ready = true; showState('ready'); render();
       return;
     }
-    showState('loading'); render();
+    var cached = readCache();
+    if (cached) { D = cached; setDefaults(); S.ready = true; S.stale = true; showState('ready'); }
+    else showState('loading');
+    el.sync.hidden = !S.stale;
+    render();
     api('init').then(function (r) {
-      D = r; setDefaults(); S.ready = true; showState('ready'); render();
+      var first = !S.ready;
+      D = r;
+      if (first) setDefaults(); else keepSelections();
+      writeCache();
+      S.ready = true; S.stale = false; el.sync.hidden = true;
+      showState('ready'); render();
     }).catch(function (e) {
-      showState('error', e.message); render();
+      S.stale = false; el.sync.hidden = true;
+      if (S.ready) toast('Sheetdan yangilab boʻlmadi. ' + e.message, 'error');
+      else showState('error', e.message);
+      render();
     });
   }
 
