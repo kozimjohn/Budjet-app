@@ -157,6 +157,8 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
 .fee-row .chips { gap: 6px; }
 .nowrap { white-space: nowrap; }
 .fee-note { margin-top: 6px; font-size: 12.5px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.fee-note.bad { color: var(--danger); }
+.ex-got { width: 100%; margin-top: 8px; }
 
 /* chips */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -481,7 +483,8 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     cat: { out: null, in: null }, from: null, to: null,
     date: null, busy: false, ready: false, lastSaved: null, sheetOpen: false,
     kb: false,      // raqam klaviaturasi ochiqmi (summa bosilganda ochiladi)
-    fee: '0',       // almashtirishdagi komissiya, % (Cash dollar → Card sum uchun odatda 1,1)
+    fee: '0',       // almashtirishdagi komissiya, % (Cash dollar → Card sum uchun odatda 1,1); 'got' = aniq summa
+    got: '',        // "Aniq summa": chekdagi kartaga tushgan summa
     q: '',          // kategoriya qidiruvi
     edit: null,     // tahrirlanayotgan eski yozuv
     delConfirm: false,
@@ -535,17 +538,34 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     } catch (e) {}
   }
   // Dollar → Card sum: soʻm kartaga tushayotganda oʻtkazma komissiyasi ushlanadi.
-  // Sheetga bitta Exchange qatori yoziladi, kursi komissiya ayrilgan holda (12 000 × (1 − 1,1%) = 11 868),
-  // shunda Card sum'ga toʻgʻridan-toʻgʻri ayrilgan summa tushadi. Asl kurs va foiz izohga yoziladi.
-  var FEE_TO = 'Card sum', FEE_FROM = 'Cash dollar', FEE_DEFAULT = '1.1', FEE_PRESETS = ['1.1', '1'];
+  // Bank kabi hisoblanadi: yuboruvchi summa + komissiya = $ × kurs, ya'ni kartaga $ × kurs ÷ (1 + foiz) tushadi
+  // (chek bilan tekshirilgan: 1 195 000 ÷ 1,0075 = 1 186 104,22). Sheetga bitta Exchange qatori yoziladi,
+  // kursi komissiya ayrilgan holda; asl kurs va foiz izohga yoziladi.
+  var FEE_TO = 'Card sum', FEE_FROM = 'Cash dollar', FEE_DEFAULT = '1.1', FEE_PRESETS = ['1.1', '1', '0.75'], FEE_KEY = 'pb-fee-v1';
   function feeApplies(from, to) { return from === FEE_FROM && to === FEE_TO; }
-  function defaultFee(from, to) { return feeApplies(from, to) ? FEE_DEFAULT : '0'; }
-  // Sheetga yoziladigan kurs: butun son (12 000 × (1 − 1,1%) = 11 868), verguldan keyingi raqamlarsiz
-  function effRate(rate, pct) { return Math.round(rate * (1 - (parseFloat(pct) || 0) / 100)); }
+  // Oxirgi ishlatilgan foiz keyingi safar ham tanlangan turadi
+  function lastFee() { try { var v = localStorage.getItem(FEE_KEY); if (FEE_PRESETS.indexOf(v) >= 0) return v; } catch (e) {} return FEE_DEFAULT; }
+  function rememberFee(p) { p = String(p); if (FEE_PRESETS.indexOf(p) >= 0) { try { localStorage.setItem(FEE_KEY, p); } catch (e) {} } }
+  function defaultFee(from, to) { return feeApplies(from, to) ? lastFee() : '0'; }
+  // Sheetga yoziladigan kurs: butun son (12 000 ÷ 1,011 = 11 869), verguldan keyingi raqamlarsiz
+  function effRate(rate, pct) { return Math.round(rate / (1 + (parseFloat(pct) || 0) / 100)); }
   // Hamyonga tushadigan summa: komissiyali boʻlsa $ × butun kurs (sheet ham aynan shunday hisoblaydi)
-  function exchangeNet(amt, from, to, rate, pct) {
-    return feeApplies(from, to) && rate > 0 && !S.edit ? amt * effRate(rate, pct) : convert(amt, from, to, rate);
+  // "Aniq summa" (pct === 'got'): chekdagi kartaga tushgan summa kiritiladi, kurs = summa ÷ $ (butun son)
+  function netRate(amt, rate, pct, got) {
+    if (pct === 'got') return got > 0 && amt > 0 ? Math.round(got / amt) : NaN;
+    return effRate(rate, pct);
   }
+  function exchangeNet(amt, from, to, rate, pct, got) {
+    return feeApplies(from, to) && rate > 0 && !S.edit ? amt * netRate(amt, rate, pct, got) : convert(amt, from, to, rate);
+  }
+  // Tushgan summa beriladigan summaga nisbatan aqlga sigʻadimi (xato bosilgan nol va h.k.)
+  function gotProblem(amt, rate) {
+    var g = total(S.got), gross = amt * rate;
+    if (!(g > 0)) return 'Kartaga tushgan summani kiriting';
+    if (gross > 0 && (g > gross * 1.1 || g < gross * 0.8)) return 'Tushgan summani tekshiring';
+    return '';
+  }
+  function resetFee() { S.fee = defaultFee(S.from, S.to); S.got = ''; if (S.focus === 'fee' || S.focus === 'got') S.focus = 'amount'; }
   function pctLabel(p) { return fmtNum(parseFloat(p) || 0, 2) + '%'; }
   function rateFor(f, t) {
     var pr = D.pairRate || {};
@@ -726,7 +746,8 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       if (!(amt > 0)) return { ok: false, msg: 'Summani kiriting' };
       var rate = parseFloat(S.rate);
       if (isUsd(S.from) !== isUsd(S.to) && !(rate > 0)) return { ok: false, msg: 'Kursni kiriting' };
-      return { ok: true, msg: 'Saqlash · ' + money(amt, S.from) + ' → ' + money(exchangeNet(amt, S.from, S.to, rate, S.fee), S.to) };
+      if (feeApplies(S.from, S.to) && !S.edit && S.fee === 'got') { var gp = gotProblem(amt, rate); if (gp) return { ok: false, msg: gp }; }
+      return { ok: true, msg: 'Saqlash · ' + money(amt, S.from) + ' → ' + money(exchangeNet(amt, S.from, S.to, rate, S.fee, total(S.got)), S.to) };
     }
     if (!(amt > 0)) return { ok: false, msg: 'Summani kiriting' };
     if (!S.cat[S.mode]) return { ok: false, msg: 'Kategoriyani tanlang' };
@@ -820,19 +841,30 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       }
       html += '</div>';
       var feeOn = feeApplies(S.from, S.to) && !S.edit;
-      var net = exchangeNet(amt, S.from, S.to, rate, S.fee);
-      var fee = feeOn && isFinite(got) ? got - net : 0;
+      var exact = feeOn && S.fee === 'got', recv = total(S.got);
+      var net = exchangeNet(amt, S.from, S.to, rate, S.fee, recv);
+      var fee = feeOn && isFinite(got) ? got - (exact ? recv : net) : 0;
       if (feeOn) {
         html += '<div class="fee-row"><span class="lbl">Komissiya</span><div class="chips">' +
           FEE_PRESETS.map(function (p) {
             return '<button class="chip sm" data-fee="' + p + '" aria-pressed="' + (S.fee === p) + '">' + esc(pctLabel(p)) + '</button>';
-          }).join('') + '</div></div>';
+          }).join('') + '<button class="chip sm" data-fee="got" aria-pressed="' + exact + '">Aniq summa</button></div></div>';
       }
-      html += '<div class="ex-out"><span>' + esc(S.to || '') + ' hamyoniga tushadi</span><b>' +
-        (amt > 0 && isFinite(net) ? esc(money(net, S.to)) : '—') + '</b></div>';
-      if (feeOn && fee > 0 && amt > 0) {
-        html += '<div class="fee-note">' + esc(fmtNum(got, 0)) + ' − ' + esc(fmtNum(fee, 0)) + ' komissiya (' + esc(pctLabel(S.fee)) + ') · ' +
-          '<span class="nowrap">kurs ' + esc(fmtNum(effRate(rate, S.fee), 0)) + '</span></div>';
+      if (exact) {
+        html += '<button class="field ex-got" data-field="got" aria-pressed="' + (S.focus === 'got') + '"><span class="f-lbl">' + esc(S.to) + ' hamyoniga tushgan summa (chekdan)</span>' +
+          '<span class="f-val' + (S.got ? '' : ' empty') + '"><span>' + (S.got ? showExpr(S.got) : '0') + '</span>' + (S.focus === 'got' ? caret : '') + '<span class="amt-cur">soʻm</span></span></button>';
+        var gp = amt > 0 && rate > 0 ? gotProblem(amt, rate) : '';
+        if (amt > 0 && rate > 0 && recv > 0) {
+          html += '<div class="fee-note' + (gp ? ' bad' : '') + '">' + (gp ? esc(gp) + ' · ' : '') + esc(fmtNum(got, 0)) + ' − ' + esc(fmtNum(fee, 0)) + ' komissiya (' + esc(pctLabel(round2((got / recv - 1) * 100))) + ') · ' +
+            '<span class="nowrap">kurs ' + esc(fmtNum(netRate(amt, rate, 'got', recv), 0)) + '</span></div>';
+        } else html += '<div class="fee-note">Chekdagi summani yozing: komissiya va kurs oʻzi hisoblanadi</div>';
+      } else {
+        html += '<div class="ex-out"><span>' + esc(S.to || '') + ' hamyoniga tushadi</span><b>' +
+          (amt > 0 && isFinite(net) ? esc(money(net, S.to)) : '—') + '</b></div>';
+        if (feeOn && fee > 0 && amt > 0) {
+          html += '<div class="fee-note">' + esc(fmtNum(got, 0)) + ' − ' + esc(fmtNum(fee, 0)) + ' komissiya (' + esc(pctLabel(S.fee)) + ') · ' +
+            '<span class="nowrap">kurs ' + esc(fmtNum(effRate(rate, S.fee), 0)) + '</span></div>';
+        }
       }
       el.amount.innerHTML = html;
       return;
@@ -966,7 +998,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (show && el.keypad.hidden) { el.keypad.classList.remove('show'); void el.keypad.offsetWidth; el.keypad.classList.add('show'); }
     el.keypad.hidden = !show;
     el.dock.classList.toggle('empty', IN_TG && !show);   // Telegramda saqlash tugmasi alohida: klaviatura yopiq boʻlsa panel boʻsh qoladi (xabarlar baribir koʻrinadi)
-    var rateField = S.mode === 'ex' && (S.focus === 'rate' || S.focus === 'fee');
+    var rateField = S.mode === 'ex' && (S.focus === 'rate' || S.focus === 'fee' || S.focus === 'got');
     var plus = el.keypad.querySelector('[data-k="+"]'), thousand = el.keypad.querySelector('[data-k="000"]');
     plus.disabled = rateField || !S.ready;
     Array.prototype.forEach.call(el.keypad.querySelectorAll('button'), function (b) { if (b !== plus) b.disabled = !S.ready; });
@@ -1016,7 +1048,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
   /* ---------- actions ---------- */
   function press(k) {
     if (!S.ready || S.busy) return;
-    var field = S.mode === 'ex' && (S.focus === 'rate' || S.focus === 'fee') ? S.focus : 'amount';
+    var field = S.mode === 'ex' && (S.focus === 'rate' || S.focus === 'fee' || S.focus === 'got') ? S.focus : 'amount';
     var v = S[field];
     var term = v.split('+').pop();
     if (k === 'back') v = v.slice(0, -1);
@@ -1051,12 +1083,12 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       if (w === S.to) S.to = S.from;
       S.from = w; S.rate = rateFor(S.from, S.to);
       if (isUsd(S.from) === isUsd(S.to)) S.focus = 'amount';
-      S.fee = defaultFee(S.from, S.to); if (S.focus === 'fee' && !feeApplies(S.from, S.to)) S.focus = 'amount';
+      resetFee();
     } else if (role === 'to') {
       if (w === S.from) return;
       S.to = w; S.rate = rateFor(S.from, S.to);
       if (isUsd(S.from) === isUsd(S.to)) S.focus = 'amount';
-      S.fee = defaultFee(S.from, S.to); if (S.focus === 'fee' && !feeApplies(S.from, S.to)) S.focus = 'amount';
+      resetFee();
     }
     haptic('select');
     render();
@@ -1080,7 +1112,8 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (S.mode === 'ex') {
       var cross = isUsd(S.from) !== isUsd(S.to);
       entry = { type: 'exchange', date: S.date, category: EXCHANGE, amount: amt, expr: expr, wallet: S.from, to: S.to,
-        rate: cross ? parseFloat(S.rate) : null, note: note, feePct: feeApplies(S.from, S.to) && !S.edit ? (parseFloat(S.fee) || 0) : 0 };
+        rate: cross ? parseFloat(S.rate) : null, note: note, feePct: feeApplies(S.from, S.to) && !S.edit && S.fee !== 'got' ? (parseFloat(S.fee) || 0) : 0,
+        got: feeApplies(S.from, S.to) && !S.edit && S.fee === 'got' ? round2(total(S.got)) : 0 };
     } else {
       entry = { type: S.mode, date: S.date, category: S.cat[S.mode], amount: amt, expr: expr, wallet: S.wallet[S.mode], to: '', rate: null, note: note };
     }
@@ -1088,9 +1121,9 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     S.busy = true; renderSave();
     (entry.type === 'exchange' ? persistExchange(entry) : persist(entry)).then(function (res) {
       S.amount = ''; S.focus = 'amount'; el.note.value = ''; S.kb = false;
-      if (entry.type === 'exchange') S.fee = defaultFee(S.from, S.to);
+      if (entry.type === 'exchange') resetFee();
       var label = entry.type === 'exchange' ? entry.wallet + ' → ' + entry.to : String(entry.category).trim();
-      var feeTxt = res && res.fee > 0 ? ' → ' + money(res.net, entry.to) + ' (komissiya ' + pctLabel(entry.feePct) + ')' : '';
+      var feeTxt = res && res.fee > 0 ? ' → ' + money(res.net, entry.to) + ' (komissiya ' + pctLabel(res.pct) + ')' : '';
       if (res && res.pending) toast('Internet yoʻq: ' + label + ' navbatga qoʻyildi, ulanganda oʻzi yuboriladi', 'ok', true);
       else toast('Saqlandi: ' + label + ', ' + money(entry.amount, entry.wallet) + feeTxt, 'ok', true);
       haptic('success');
@@ -1111,7 +1144,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     var k = recKind(r);
     // Tahrirdan oldingi forma: tahrir tugagach (yoki bekor qilinsa) shu holatga qaytiladi
     if (!S.edit) S.draft = { mode: S.mode, amount: S.amount, date: S.date, note: el.note.value, cat: Object.assign({}, S.cat),
-      wallet: Object.assign({}, S.wallet), touched: Object.assign({}, S.touched), from: S.from, to: S.to, rate: S.rate, fee: S.fee };
+      wallet: Object.assign({}, S.wallet), touched: Object.assign({}, S.touched), from: S.from, to: S.to, rate: S.rate, fee: S.fee, got: S.got };
     S.edit = r; S.delConfirm = false; S.mode = k; S.focus = 'amount'; S.kb = false;
     S.amount = String(round2(r.amount)); S.date = r.date; el.note.value = r.note || '';
     if (k === 'ex') { S.from = r.wallet; S.to = r.to; S.rate = r.rate ? String(r.rate) : ''; S.fee = '0'; }
@@ -1122,14 +1155,14 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
   function endEdit() {
     var d = S.draft;
     S.edit = null; S.draft = null; S.delConfirm = false; S.kb = false; S.focus = 'amount';
-    if (!d) { S.amount = ''; el.note.value = ''; S.date = iso(new Date()); S.fee = defaultFee(S.from, S.to); return; }
+    if (!d) { S.amount = ''; el.note.value = ''; S.date = iso(new Date()); resetFee(); return; }
     S.mode = d.mode; S.amount = d.amount; S.date = d.date; el.note.value = d.note;
-    S.cat = d.cat; S.wallet = d.wallet; S.touched = d.touched; S.from = d.from; S.to = d.to; S.rate = d.rate; S.fee = d.fee;
+    S.cat = d.cat; S.wallet = d.wallet; S.touched = d.touched; S.from = d.from; S.to = d.to; S.rate = d.rate; S.fee = d.fee; S.got = d.got || '';
   }
   function refOf(r) { return { sheet: r.sheet, row: r.row, cat: r.cat, amount: r.amount, date: r.date }; }
   function saveEdit(entry) {
     var r = S.edit;
-    delete entry.feePct;
+    delete entry.feePct; delete entry.got;
     S.busy = true; renderSave();
     var p = LIVE ? api('update', { ref: refOf(r), entry: entry }) : demoUpdate(r, entry);
     p.then(function (res) {
@@ -1203,21 +1236,27 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
 
   // Almashtirish. Komissiya boʻlsa, kurs ayrilgan summaga moslanadi: $ × kurs = Card sum'ga tushadigan summa.
   function persistExchange(entry) {
-    var pct = entry.feePct || 0, ex = Object.assign({}, entry);
-    delete ex.feePct;
+    var pct = entry.feePct || 0, recv = entry.got || 0, ex = Object.assign({}, entry);
+    delete ex.feePct; delete ex.got;
     var nominal = ex.rate;
-    var on = feeApplies(ex.wallet, ex.to) && nominal > 0 && pct > 0;
+    var exact = feeApplies(ex.wallet, ex.to) && nominal > 0 && recv > 0;
+    var on = feeApplies(ex.wallet, ex.to) && nominal > 0 && (pct > 0 || exact);
     var gross = convert(ex.amount, ex.wallet, ex.to, nominal || D.lastRate);
-    var net = on ? ex.amount * effRate(nominal, pct) : gross;
+    var rNet = exact ? Math.round(recv / ex.amount) : effRate(nominal, pct);
+    var net = on ? ex.amount * rNet : gross;
     var fee = on ? gross - net : 0;
+    var plain = function (n, d) { return fmtNum(n, d).replace(/[\u202F\u00A0]/g, ' '); };
+    if (exact) pct = round2((gross / recv - 1) * 100);
+    else if (on) rememberFee(pct);
     if (on) {
-      ex.rate = effRate(nominal, pct);
-      ex.note = 'Kurs ' + fmtNum(nominal, 2).replace(/\u202F/g, ' ') + ', komissiya ' + pctLabel(pct) + (ex.note ? ' · ' + ex.note : '');
+      ex.rate = rNet;
+      ex.note = 'Kurs ' + plain(nominal, 2) + (pct > 0 ? ', komissiya ' + pctLabel(pct) : '') +
+        (exact ? ', kartaga ' + plain(recv, 2) : '') + (ex.note ? ' · ' + ex.note : '');
     }
     return persist(ex).then(function (rec) {
-      if (fee > 0) D.pairRate[ex.wallet + '>' + ex.to] = nominal;   // keyingi safar asl kurs taklif qilinsin
+      if (on) D.pairRate[ex.wallet + '>' + ex.to] = nominal;   // keyingi safar asl kurs taklif qilinsin
       writeCache();
-      return { fee: fee, net: net, pending: !!rec.pending };
+      return { fee: fee, net: net, pct: pct, pending: !!rec.pending };
     });
   }
 
@@ -1500,7 +1539,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       if (!cross) x.rate = null;
       else if (!x.rate) x.rate = parseFloat(rateFor(x.wallet, x.to)) || null;
       var givenFee = e.fee != null && e.fee !== '' && isFinite(Number(e.fee)) ? String(Number(e.fee)) : null;
-      x.fee = feeApplies(x.wallet, x.to) ? (givenFee === '1' ? '1' : FEE_DEFAULT) : '0';
+      x.fee = feeApplies(x.wallet, x.to) ? (givenFee !== null && +givenFee >= 0 && +givenFee <= 5 ? givenFee : lastFee()) : '0';
     } else if (!x.wallet) {
       x.wallet = (x.category && D.favWallet[t] && D.favWallet[t][x.category]) || (D.defaultWallet && D.defaultWallet[t]) || null;
     }
@@ -2057,7 +2096,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (act === 'open-sheet') return openSheet();
     if (act === 'close-sheet') return closeSheet();
     if (act === 'undo') { el.toast.hidden = true; return undo(); }
-    if (act === 'swap') { var f = S.from; S.from = S.to; S.to = f; S.rate = rateFor(S.from, S.to); S.fee = defaultFee(S.from, S.to); if (S.focus === 'fee') S.focus = 'amount'; haptic('select'); return render(); }
+    if (act === 'swap') { var f = S.from; S.from = S.to; S.to = f; S.rate = rateFor(S.from, S.to); resetFee(); haptic('select'); return render(); }
     if (act === 'retry') return boot();
     if (act === 'kb-open') { haptic('select'); return openKb(); }
     if (act === 'q-clear') return typeSearch('clear');
@@ -2065,7 +2104,12 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (act === 'edit-delete') return deleteEdit();
     if (act === 'receipt') return pickReceipt();
     if (t.hasAttribute('data-rec') && !act) return startEdit(D.recent[+t.getAttribute('data-rec')]);
-    if (t.hasAttribute('data-fee')) { S.fee = t.getAttribute('data-fee'); if (S.focus === 'fee') S.focus = 'amount'; haptic('select'); renderAmount(); return renderSave(); }
+    if (t.hasAttribute('data-fee')) {
+      S.fee = t.getAttribute('data-fee'); haptic('select');
+      if (S.fee === 'got') { S.focus = 'got'; openKb(); return renderSave(); }
+      if (S.focus === 'fee' || S.focus === 'got') S.focus = 'amount';
+      renderAmount(); return renderSave();
+    }
     if (act === 'voice') { if (V.state === 'rec') return; return startVoice(); }
     if (act === 'voice-input') return showInput();
     if (act === 'cmd-clear') { updateCmd(''); var c = document.getElementById('cmdText'); if (c) { c.value = ''; c.focus(); } return; }
