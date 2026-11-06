@@ -18,7 +18,7 @@
  */
 
 var CFG = {
-  VERSION: '2026-11-06',                             // ilova pastida koʻrinadi: Apps Script yangilanganini tekshirish uchun
+  VERSION: '2026-11-06.2',                           // ilova pastida koʻrinadi: Apps Script yangilanganini tekshirish uchun
   OUT: { name: 'Outflow', firstRow: 5, cols: 7 },   // A Date · B Outflow · C Amount · D Payment method · E Rate · F Note · G Exchange-to
   IN: { name: 'Inflow', firstRow: 7, cols: 6 },     // A Date · B Inflow · C Amount · D Payment method · E Rate · F Note
   LIST: 'List of items',                            // A Payment method · B Inflow · C Outflow · D Tip
@@ -61,17 +61,40 @@ function doPost(e) {
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
 }
 
-function doGet() {
-  return ContentService.createTextOutput(JSON.stringify({ ok: true, service: 'personal-budjet-miniapp', version: CFG.VERSION }))
-    .setMimeType(ContentService.MimeType.JSON);
+// Brauzerda …/exec?check=1 ochilsa: sozlamalar tekshiruvi (maxfiy qiymatlar koʻrsatilmaydi)
+function doGet(e) {
+  var out = { ok: true, service: 'personal-budjet-miniapp', version: CFG.VERSION };
+  if (e && e.parameter && e.parameter.check) out.tekshiruv = check_();
+  return ContentService.createTextOutput(JSON.stringify(out, null, 2)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function check_() {
+  var p = PropertiesService.getScriptProperties(), r = {};
+  var raw = p.getProperty('BOT_TOKEN'), token = cleanToken_(raw);
+  if (!raw) r.BOT_TOKEN = 'YOʻQ: Script properties ga BOT_TOKEN qoʻshing';
+  else if (!/^\d{5,}:[A-Za-z0-9_-]{30,}$/.test(token)) r.BOT_TOKEN = 'XATO: qiymatda token topilmadi (raqamlar:harflar koʻrinishida boʻlishi kerak)';
+  else {
+    try {
+      var j = JSON.parse(UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/getMe', { muteHttpExceptions: true }).getContentText() || '{}');
+      r.BOT_TOKEN = j.ok && j.result ? 'toʻgʻri: @' + j.result.username + ' boti' + (token !== String(raw).trim() ? ' (ortiqcha matn olib tashlandi)' : '')
+        : 'XATO: Telegram bu tokenni qabul qilmadi (eskirgan yoki xato). @BotFather → API Token dan qayta nusxalang';
+    } catch (x) { r.BOT_TOKEN = 'tekshirib boʻlmadi: ' + x.message; }
+  }
+  var id = String(p.getProperty('ALLOWED_USER_ID') || '').replace(/\D/g, '');
+  r.ALLOWED_USER_ID = id ? 'bor (' + id.slice(0, 2) + '…' + id.slice(-2) + ')' : 'YOʻQ';
+  try { openSheet_().getSheetByName(CFG.OUT.name).getLastRow(); r.SHEET_ID = 'toʻgʻri: sheet ochildi'; }
+  catch (x) { r.SHEET_ID = 'XATO: ' + x.message; }
+  r.GEMINI_API_KEY = p.getProperty('GEMINI_API_KEY') ? 'bor' : 'yoʻq (ovoz va chek oʻqish ishlamaydi)';
+  r.LENDERS = lenders_().length ? lenders_().length + ' ta joy' : 'yoʻq';
+  return r;
 }
 
 /* ================= Telegram auth ================= */
 
 function auth_(initData) {
   var props = PropertiesService.getScriptProperties();
-  // Nusxalashda qoʻshilib qolgan boʻshliq yoki qoʻshtirnoq imzoni buzmasin
-  var token = String(props.getProperty('BOT_TOKEN') || '').replace(/^[\s"']+|[\s"']+$/g, '');
+  // BotFather xabari butunligicha qoʻyilsa ham tokenning oʻzi ajratib olinadi (boʻshliq, qoʻshtirnoq, ortiqcha matn)
+  var token = cleanToken_(props.getProperty('BOT_TOKEN'));
   var allowed = String(props.getProperty('ALLOWED_USER_ID') || '').replace(/^[\s"']+|[\s"']+$/g, '');
   if (!token || !allowed) throw new Error('Apps Script sozlanmagan: BOT_TOKEN va ALLOWED_USER_ID kerak');
   if (!initData || typeof initData !== 'string') throw new Error('Mini App’ni Telegram ichida oching');
@@ -86,7 +109,7 @@ function auth_(initData) {
   var check = Object.keys(fields).sort().map(function (k) { return k + '=' + fields[k]; }).join('\n');
   var secret = Utilities.computeHmacSha256Signature(bytes_(token), bytes_('WebAppData'));
   var sig = hex_(Utilities.computeHmacSha256Signature(bytes_(check), secret));
-  if (!hash || sig !== hash) throw new Error('Ruxsat yoʻq: Telegram imzosi mos kelmadi');
+  if (!hash || sig !== hash) throw new Error('Ruxsat yoʻq: Telegram imzosi mos kelmadi. ' + tokenHint_(token));
 
   var age = Date.now() / 1000 - Number(fields.auth_date || 0);
   if (!(age < CFG.MAX_AUTH_AGE_SEC)) throw new Error('Sessiya eskirdi: Mini App’ni yopib, qayta oching');
@@ -807,6 +830,27 @@ function top_(o) {
   Object.keys(o || {}).forEach(function (k) { if (o[k] > n) { n = o[k]; best = k; } });
   return best;
 }
+function cleanToken_(raw) {
+  var s = String(raw || '');
+  var m = s.match(/\d{5,}:[A-Za-z0-9_-]{30,}/);
+  return m ? m[0] : s.replace(/^[\s"']+|[\s"']+$/g, '');
+}
+
+// Imzo mos kelmasa: BOT_TOKEN qaysi botniki ekanini aytamiz (tokenning oʻzi koʻrsatilmaydi)
+function tokenHint_(token) {
+  try {
+    var cache = CacheService.getScriptCache(), key = 'tokhint:' + token.split(':')[0];
+    var hit = cache.get(key);
+    if (hit) return hit;
+    var r = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/getMe', { muteHttpExceptions: true });
+    var j = JSON.parse(r.getContentText() || '{}');
+    var msg = j.ok && j.result ? 'BOT_TOKEN @' + j.result.username + ' botiniki: Mini App’ni shu botning menyu tugmasidan oching yoki shu botning tokenini qoʻying.'
+      : 'BOT_TOKEN Telegram’da ishlamayapti (xato nusxalangan yoki eskirgan): @BotFather’dan qayta nusxalang.';
+    cache.put(key, msg, 300);
+    return msg;
+  } catch (e) { return 'BOT_TOKEN ni tekshiring.'; }
+}
+
 function decode_(s) { return decodeURIComponent(s.replace(/\+/g, ' ')); }
 function bytes_(s) { return Utilities.newBlob(s).getBytes(); }
 function hex_(bytes) {
