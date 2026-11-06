@@ -62,7 +62,7 @@ function doPost(e) {
 }
 
 function doGet() {
-  return ContentService.createTextOutput(JSON.stringify({ ok: true, service: 'personal-budjet-miniapp' }))
+  return ContentService.createTextOutput(JSON.stringify({ ok: true, service: 'personal-budjet-miniapp', version: CFG.VERSION }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 

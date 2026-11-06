@@ -1201,6 +1201,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (!n) return;
     var dm = function (v) { return v ? v.slice(8, 10) + '.' + v.slice(5, 7) : ''; };
     if (!LIVE) { n.textContent = 'Versiya ' + dm(APP_VERSION) + ' · namuna'; n.className = 'ver'; return; }
+    if (S.initError) { n.textContent = 'Apps Script javob bermadi: ' + S.initError; n.className = 'ver old'; return; }
     if (backendOld()) { n.textContent = OLD_BACKEND_MSG + (D.version ? ' (hozir: ' + dm(D.version) + ')' : ''); n.className = 'ver old'; return; }
     n.textContent = 'Ilova ' + dm(APP_VERSION) + ' · Apps Script ' + dm(D.version); n.className = 'ver';
   }
@@ -2600,7 +2601,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (act === 'close-sheet') return closeSheet();
     if (act === 'undo') { el.toast.hidden = true; return undo(); }
     if (act === 'debt-toggle') {
-      if (LIVE && !D.debts) { toast(OLD_BACKEND_MSG, 'error'); haptic('error'); return; }
+      if (LIVE && !D.debts) { toast(S.initError ? 'Apps Script javob bermadi: ' + S.initError : OLD_BACKEND_MSG, 'error'); haptic('error'); return; }
       S.debt = !S.debt; S.amount = ''; S.prefilled = false; S.focus = 'amount'; if (!S.rate) S.rate = rateFor(S.from, S.to);
       if (S.debt && !S.lender) { var ll = lastLender(), ls = D.lenders || []; S.lender = ls.indexOf(ll) >= 0 ? ll : ls[0] || '__new'; }
       haptic('select'); render();
@@ -2830,14 +2831,14 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     render();
     api('init').then(function (r) {
       var first = !S.ready;
-      D = r; setBase(r.balances); applyQueueToRecent();
+      D = r; setBase(r.balances); applyQueueToRecent(); S.initError = '';
       if (first) setDefaults(); else keepSelections();
       writeCache();
       S.ready = true; S.stale = false; el.sync.hidden = true;
       showState('ready'); render();
       flushQueue();
     }).catch(function (e) {
-      S.stale = false; el.sync.hidden = true;
+      S.stale = false; el.sync.hidden = true; S.initError = e.message;
       if (S.ready) toast('Sheetdan yangilab boʻlmadi. ' + e.message, 'error');
       else showState('error', e.message);
       render();
