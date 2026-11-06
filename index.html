@@ -566,7 +566,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     debts: $('#debtBlock'), settleSheet: $('#settleSheet'), settleBody: $('#settleBody')
   };
   // Qarzni yopish oynasi (soʻm oldin tushgan, dollar endi berilyapti)
-  var Q = { open: false, d: null, rate: '', given: '', touched: false, busy: false, changeTo: null, change: '', changeTouched: false };
+  var Q = { open: false, d: null, rate: '', given: '', touched: false, busy: false, changeTo: null, change: '', changeTouched: false, fee: '0' };
   var DEBT_MARK = 'QARZ: dollar hali berilmagan';
   function isOpenDebt(r) { return !!r && r.cat === EXCHANGE && String(r.note || '').indexOf(DEBT_MARK) === 0; }
   // "Dollar keyin beriladi": dollar hamyondan soʻm hamyonga (eski Apps Script'da yoʻq)
@@ -574,6 +574,13 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
   // Oxirgi tanlangan joy keyingi safar ham tanlangan turadi (telefonda eslab qolinadi)
   function lastLender() { try { return localStorage.getItem('pb-lender-last') || ''; } catch (e) { return ''; } }
   function setLastLender(n) { try { localStorage.setItem('pb-lender-last', n); } catch (e) {} }
+  // Qarzdagi oʻtkazma komissiyasi (sizdan olingan): qarz = tushgan × (1 + foiz)
+  var DEBT_FEES = ['0', '1.1', '1'];
+  function feeOfDebt(d) { if (d && d.fee != null) return Number(d.fee) || 0; var m = String((d && d.note) || '').match(/komissiya (\d+(?:,\d+)?)%/); return m ? Number(m[1].replace(',', '.')) : 0; }
+  function owedOf(d, fee) { var f = fee != null ? fee : feeOfDebt(d); return round2(d.som * (1 + f / 100)); }
+  function feeChips(cur, attr) {
+    return DEBT_FEES.map(function (p) { return '<button class="chip sm" ' + attr + '="' + p + '" aria-pressed="' + (String(cur) === p) + '">' + (p === '0' ? 'Yoʻq' : esc(pctLabel(p))) + '</button>'; }).join('');
+  }
   function lenderOf(r) { var m = String((r && r.note) || '').match(/Kimdan: ([^·]+)/); return r && r.lender ? r.lender : m ? m[1].trim() : ''; }
   function parseNum(x) { return parseFloat(String(x == null ? '' : x).replace(/\s/g, '').replace(',', '.')); }
   // Oylik toʻlov qoʻshish oynasi
@@ -828,7 +835,10 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     applyBalances(b, entry, 1);
     var saved = { sheet: entry.type === 'in' ? 'in' : 'out', row: ++demoRow, date: entry.date, cat: entry.category, amount: entry.amount,
       wallet: entry.wallet, to: entry.to || '', rate: entry.rate || null, note: entry.note };
-    if (entry.debtSom) { saved.som = entry.debtSom; saved.lender = entry.lender || undefined; saved.note = DEBT_MARK + (entry.lender ? ' · Kimdan: ' + entry.lender : '') + (entry.note ? ' · ' + entry.note : ''); }
+    if (entry.debtSom) {
+      saved.som = entry.debtSom; saved.lender = entry.lender || undefined; saved.fee = entry.debtFee || undefined;
+      saved.note = DEBT_MARK + (entry.lender ? ' · Kimdan: ' + entry.lender : '') + (entry.debtFee ? ' · komissiya ' + pctLabel(entry.debtFee) : '') + (entry.note ? ' · ' + entry.note : '');
+    }
     return new Promise(function (res) { setTimeout(function () { res({ saved: saved, balances: b }); }, 350); });
   }
   function demoUpdate(old, entry) {
@@ -878,7 +888,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
   function wcolor(w) { return 'var(' + (WALLET_COLOR[w] || '--muted') + ')'; }
   function wdot(w) { return '<span class="wdot" style="--wc:' + wcolor(w) + '" aria-hidden="true"></span>'; }
   // Ochiq qarz uchun band qilingan dollar: sheetda ayrilgan, lekin hali qoʻlingizda
-  function reservedFor(w) { return (D.debts || []).reduce(function (s, d) { return s + (d.wallet === w ? Number(d.amount) || 0 : 0); }, 0); }
+  function reservedFor(w) { return (D.debts || []).reduce(function (s, d) { return s + (d.wallet === w ? (d.som > 0 && d.rate > 0 ? owedOf(d) / d.rate : Number(d.amount) || 0) : 0); }, 0); }
   function walletBtn(w, role, pressed, disabled) {
     var res = reservedFor(w);
     var bal = (D.balances[w] || 0) + res;   // qoʻldagi haqiqiy pul
@@ -982,7 +992,8 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       var debtBtn = canDebt ? '<div class="debt-row"><button class="chip sm" data-act="debt-toggle" aria-pressed="' + !!S.debt + '">Dollar keyin beriladi</button></div>' : '';
       if (canDebt && S.debt) {
         // Qarz: soʻm hozir tushdi, dollar keyin. Kurs taxminiy, dollar berilganda aniqlanadi
-        var est = amt > 0 && rate > 0 ? amt / rate : NaN;
+        var dfee = parseFloat(S.debtFee) || 0, owed = round2(amt * (1 + dfee / 100));
+        var est = amt > 0 && rate > 0 ? owed / rate : NaN;
         var lenders = D.lenders || [];
         var who = '<div class="lender-row"><span class="lbl">Kimdan</span><div class="chips">' + lenders.map(function (n) {
             return '<button class="chip sm" data-lender="' + esc(n) + '" aria-pressed="' + (S.lender === n) + '">' + esc(n) + '</button>'; }).join('') +
@@ -993,7 +1004,9 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
           '<span class="f-val' + (S.amount ? '' : ' empty') + (showExpr(S.amount).length > 7 ? ' long' : '') + '"><span>' + showExpr(S.amount) + '</span>' + (S.focus === 'amount' ? caret : '') + '<span class="amt-cur">soʻm</span></span></button>' +
           '<button class="field" data-field="rate" aria-pressed="' + (S.focus === 'rate') + '"><span class="f-lbl">Taxminiy kurs</span>' +
           '<span class="f-val' + (S.rate ? '' : ' empty') + '"><span>' + (S.rate ? showExpr(S.rate) : '0') + '</span>' + (S.focus === 'rate' ? caret : '') + '</span></button></div>' +
-          '<div class="ex-out"><span>' + esc(S.from) + ' hamyonidan band qilinadi</span><b>' + (isFinite(est) ? '≈ ' + esc(money(est, S.from)) : '—') + '</b></div>';
+          '<div class="fee-row"><span class="lbl">Komissiya (sizdan)</span><div class="chips">' + feeChips(S.debtFee || '0', 'data-dfee') + '</div></div>' +
+          '<div class="ex-out"><span>' + esc(S.from) + ' hamyonidan band qilinadi</span><b>' + (isFinite(est) ? '≈ ' + esc(money(est, S.from)) : '—') + '</b></div>' +
+          (dfee > 0 && amt > 0 ? '<div class="fee-note">Qarz: ' + esc(fmtNum(amt, 0)) + ' + ' + esc(pctLabel(dfee)) + ' = <b class="nowrap">' + esc(money(owed, S.to)) + '</b></div>' : '');
         return;
       }
       var amountVal = (fUsd ? '<span class="amt-cur">$</span>' : '') + '<span>' + showExpr(S.amount) + '</span>' + (fUsd ? '' : '<span class="amt-cur">soʻm</span>');
@@ -1184,16 +1197,17 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       var who = lenderOf(d);
       return '<div class="debt"><div class="debt-main"><span class="lbl">Ochiq qarz' + (who ? ' · ' + esc(who) : '') + ' · ' + esc(daysAgo(d.date)) + '</span>' +
         '<div class="debt-title">' + esc(money(d.som, d.to)) + ' <span class="debt-w">' + esc(d.to) + '</span></div>' +
-        '<div class="debt-sub">≈ ' + esc(money(d.amount, d.wallet)) + ' beriladi · ' + esc(d.wallet) + '</div></div>' +
+        '<div class="debt-sub">≈ ' + esc(money(owedOf(d) / d.rate, d.wallet)) + ' beriladi' + (feeOfDebt(d) ? ' (komissiya ' + esc(pctLabel(feeOfDebt(d))) + ')' : '') + ' · ' + esc(d.wallet) + '</div></div>' +
         '<button class="debt-btn" data-debt="' + d.row + '">Dollar berdim</button></div>';
     }).join('');
   }
   function openSettle(d) {
     if (!S.ready || S.busy) return;
     Q.open = true; Q.d = d; Q.busy = false; Q.touched = false; Q.changeTo = null; Q.change = ''; Q.changeTouched = false;
+    Q.fee = String(feeOfDebt(d)); if (DEBT_FEES.indexOf(Q.fee) < 0) Q.fee = '0';
     var r = parseFloat(rateFor(d.wallet, 'Cash sum')) || d.rate;
     Q.rate = String(round2(r));
-    Q.given = String(round2(d.som / r)).replace('.', ',');
+    Q.given = String(round2(owedOf(d, Number(Q.fee)) / r)).replace('.', ',');
     el.settleSheet.hidden = false; el.sheetBg.hidden = false;
     if (IN_TG) { try { tg.BackButton.show(); } catch (e) {} }
     haptic('select'); renderSettle(); renderSave();
@@ -1206,9 +1220,9 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
   // Ortiqcha dollar berilsa (masalan, 166,67 oʻrniga $170): farqi soʻmda qaytarilgan boʻlishi mumkin
   var CHANGE_MIN = 1000;
   function settleState() {
-    var d = Q.d, g = parseNum(Q.given), r = parseNum(Q.rate);
+    var d = Q.d, g = parseNum(Q.given), r = parseNum(Q.rate), owed = owedOf(d, Number(Q.fee) || 0);
     var eff = g > 0 ? Math.round(d.som / g) : NaN;
-    var excess = g > 0 && r > 0 ? round2(g * r - d.som) : 0;
+    var excess = g > 0 && r > 0 ? round2(g * r - owed) : 0;
     var showChange = excess >= CHANGE_MIN;
     var back = showChange && Q.changeTo && Q.changeTo !== 'none';
     var ch = back ? (Q.changeTouched ? parseNum(Q.change) : excess) : 0;
@@ -1216,7 +1230,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       : (eff < d.rate * 0.8 || eff > d.rate * 1.2) ? 'Summani tekshiring'
       : showChange && !Q.changeTo ? 'Ortiqcha summa qaytarildimi? Tanlang'
       : back && !(ch > 0 && ch <= excess * 1.5) ? 'Qaytim summasini tekshiring' : '';
-    return { g: g, r: r, eff: eff, excess: excess, showChange: showChange, back: back, ch: ch, problem: problem };
+    return { g: g, r: r, eff: eff, excess: excess, showChange: showChange, back: back, ch: ch, problem: problem, owed: owed };
   }
   function settleTexts() {
     var d = Q.d, st = settleState(), res;
@@ -1235,7 +1249,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (!st.showChange) return '';
     var d = Q.d, som = D.wallets.filter(function (w) { return !isUsd(w); });
     som.sort(function (a, b) { return (a === 'Cash sum' ? 0 : 1) - (b === 'Cash sum' ? 0 : 1); });
-    return '<p class="set-info">' + esc(fmtNum(st.g, 2)) + ' × ' + esc(fmtNum(st.r, 2)) + ' = ' + esc(money(st.g * st.r, d.to)) + ', qarz ' + esc(money(d.som, d.to)) +
+    return '<p class="set-info">' + esc(fmtNum(st.g, 2)) + ' × ' + esc(fmtNum(st.r, 2)) + ' = ' + esc(money(st.g * st.r, d.to)) + ', qarz ' + esc(money(st.owed, d.to)) +
         ' → ortiqcha <b>' + esc(money(st.excess, d.to)) + '</b></p>' +
       '<div class="lbl">Ortiqchasi qaytarildimi?</div><div class="chips">' +
       som.map(function (w) { return '<button class="chip sm" data-qto="' + esc(w) + '" aria-pressed="' + (Q.changeTo === w) + '">' + esc(w) + 'ga</button>'; }).join('') +
@@ -1248,12 +1262,18 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     var d = Q.d, tx = settleTexts();
     el.settleBody.innerHTML =
       '<p class="set-info">' + (lenderOf(d) ? '<b>' + esc(lenderOf(d)) + '</b>dan ' : '') + esc(d.to) + ' hamyoniga ' + esc(ddmm(d.date)) + ' kuni tushgan: <b>' + esc(money(d.som, d.to)) + '</b></p>' +
+      '<div class="fee-row"><span class="lbl">Komissiya (sizdan)</span><div class="chips">' + feeChips(Q.fee, 'data-qfee') + '</div></div>' +
+      '<p class="set-info" id="qOwed">' + owedLine() + '</p>' +
       '<div class="r-row two"><label class="r-field"><span class="lbl">Kelishilgan kurs</span><input class="r-input" id="qRate" inputmode="decimal" autocomplete="off" value="' + esc(Q.rate) + '"></label>' +
       '<label class="r-field"><span class="lbl">Berilgan dollar</span><input class="r-input" id="qGiven" inputmode="decimal" autocomplete="off" value="' + esc(Q.given) + '"></label></div>' +
       '<div class="change-box" id="qChangeBox">' + changeBoxHtml(tx.st) + '</div>' +
       '<p class="set-res" id="qRes">' + tx.res + '</p>' +
       '<button class="btn primary" data-act="settle-save"' + (tx.ok ? '' : ' disabled') + '>' + esc(tx.btn) + '</button>' +
       '<button class="linkish" data-act="settle-edit">Yozuvni tahrirlash yoki oʻchirish</button>';
+  }
+  function owedLine() {
+    var f = Number(Q.fee) || 0, owed = owedOf(Q.d, f);
+    return f > 0 ? 'Qaytariladi: ' + esc(fmtNum(Q.d.som, 0)) + ' + ' + esc(pctLabel(f)) + ' = <b>' + esc(money(owed, Q.d.to)) + '</b>' : '';
   }
   // Yozish paytida maydonlar qayta chizilmaydi (fokus yoʻqolmasin); qaytim bloki faqat koʻrinishi oʻzgarganda yangilanadi
   function refreshSettle(keepBox) {
@@ -1262,16 +1282,16 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (res) res.innerHTML = tx.res;
     if (b) { b.textContent = tx.btn; b.disabled = !tx.ok; }
   }
-  function demoSettle(d, g, r, change, to) {
-    var b = Object.assign({}, D.balances);
+  function demoSettle(d, g, r, change, to, fee) {
+    var b = Object.assign({}, D.balances), owed = owedOf(d, fee || 0);
     applyBalances(b, d, -1);
     var plain = function (n) { return fmtNum(n, 2).replace(/[\u202F\u00A0]/g, ' '); };
     var tail = lenderOf(d) ? ' · Kimdan: ' + lenderOf(d) : '', dd = ddmm(iso(new Date())), extra = null, saved;
     if (change > 0 && to === d.to) saved = { amount: g, rate: Math.round((d.som + change) / g), note: 'Qarz yopildi ' + dd + ', kurs ' + plain(r) + ', $' + plain(g) + ' berildi, qaytim ' + plain(change) + tail };
     else if (change > 0) {
-      saved = { amount: d.som / r, rate: r, note: 'Qarz yopildi ' + dd + ', kurs ' + plain(r) + ', $' + plain(g) + ' berildi' + tail };
-      extra = { sheet: 'out', row: ++demoRow, date: iso(new Date()), cat: EXCHANGE, amount: g - d.som / r, wallet: d.wallet, to: to,
-        rate: Math.round(change / (g - d.som / r)), note: 'Qarz qaytimi ' + dd + ': ' + plain(change) + ' soʻm, kurs ' + plain(r) + tail };
+      saved = { amount: owed / r, rate: Math.round(d.som * r / owed), note: 'Qarz yopildi ' + dd + ', kurs ' + plain(r) + ', $' + plain(g) + ' berildi' + tail };
+      extra = { sheet: 'out', row: ++demoRow, date: iso(new Date()), cat: EXCHANGE, amount: g - owed / r, wallet: d.wallet, to: to,
+        rate: Math.round(change / (g - owed / r)), note: 'Qarz qaytimi ' + dd + ': ' + plain(change) + ' soʻm, kurs ' + plain(r) + tail };
     } else saved = { amount: g, rate: Math.round(d.som / g), note: 'Qarz yopildi ' + dd + ', kurs ' + plain(r || Math.round(d.som / g)) + tail };
     saved = Object.assign({ sheet: 'out', row: d.row, date: d.date, cat: EXCHANGE, wallet: d.wallet, to: d.to }, saved);
     applyBalances(b, saved, 1); if (extra) applyBalances(b, extra, 1);
@@ -1282,7 +1302,8 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (Q.busy || st.problem) return;
     Q.busy = true; refreshSettle();
     var ch = st.back ? round2(st.ch) : 0, to = st.back ? Q.changeTo : '';
-    (LIVE ? api('settle', { ref: refOf(d), given: round2(st.g), rate: st.r > 0 ? st.r : null, change: ch, changeTo: to }) : demoSettle(d, round2(st.g), st.r, ch, to)).then(function (res) {
+    var fee = Number(Q.fee) || 0;
+    (LIVE ? api('settle', { ref: refOf(d), given: round2(st.g), rate: st.r > 0 ? st.r : null, change: ch, changeTo: to, fee: fee }) : demoSettle(d, round2(st.g), st.r, ch, to, fee)).then(function (res) {
       setBase(res.balances); if (res.budgets) D.budgets = res.budgets;
       D.debts = res.debts || [];
       var i = -1; D.recent.forEach(function (x, j) { if (i < 0 && x.sheet === 'out' && x.row === d.row) i = j; });
@@ -1557,7 +1578,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       var dr = parseFloat(S.rate);
       entry = { type: 'exchange', date: S.date, category: EXCHANGE, amount: amt / dr, expr: '', wallet: S.from, to: S.to,
         rate: dr, note: note, feePct: 0, got: 0, debtSom: amt,
-        lender: S.lender === '__new' ? String(S.lenderNew || '').trim() : (S.lender || '') };
+        lender: S.lender === '__new' ? String(S.lenderNew || '').trim() : (S.lender || ''), debtFee: parseFloat(S.debtFee) || 0 };
     } else if (S.mode === 'ex') {
       var cross = isUsd(S.from) !== isUsd(S.to);
       entry = { type: 'exchange', date: S.date, category: EXCHANGE, amount: amt, expr: expr, wallet: S.from, to: S.to,
@@ -1579,7 +1600,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       if (entry.debtSom) {
         S.debt = false;
         if (entry.lender) setLastLender(entry.lender);
-        S.lender = ''; S.lenderNew = '';
+        S.lender = ''; S.lenderNew = ''; S.debtFee = '0';
       }
       haptic('success');
     }).catch(function (e) {
@@ -2530,7 +2551,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       return;
     }
     if (S.kb && !e.target.closest('#dock, .amount, .field')) closeKb();
-    var t = e.target.closest('[data-k],[data-set-mode],[data-w],[data-cat],[data-date],[data-field],[data-act],[data-vdel],[data-vedit],[data-example],[data-fee],[data-ch],[data-quick],[data-recur],[data-rec],[data-rcat],[data-rw],[data-rdel],[data-debt],[data-lender],[data-qto]');
+    var t = e.target.closest('[data-k],[data-set-mode],[data-w],[data-cat],[data-date],[data-field],[data-act],[data-vdel],[data-vedit],[data-example],[data-fee],[data-ch],[data-quick],[data-recur],[data-rec],[data-rcat],[data-rw],[data-rdel],[data-debt],[data-lender],[data-qto],[data-dfee],[data-qfee]');
     if (!t || t.disabled) return;
     if (t.hasAttribute('data-k')) return press(t.getAttribute('data-k'));
     if (t.hasAttribute('data-rcat')) { recurPick(t.getAttribute('data-rcat')); haptic('select'); return renderRecurSheet(); }
@@ -2597,6 +2618,12 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       if (isOpenDebt(rr) && !rr.pending) { var od = debtByRow(rr.row); if (od) return openSettle(od); }
       return startEdit(rr);
     }
+    if (t.hasAttribute('data-dfee')) { S.debtFee = t.getAttribute('data-dfee'); haptic('select'); renderAmount(); return renderSave(); }
+    if (t.hasAttribute('data-qfee')) {
+      Q.fee = t.getAttribute('data-qfee'); haptic('select');
+      if (!Q.touched) { var qr = parseNum(Q.rate); if (qr > 0) Q.given = String(round2(owedOf(Q.d, Number(Q.fee) || 0) / qr)).replace('.', ','); }
+      return renderSettle();
+    }
     if (t.hasAttribute('data-qto')) { Q.changeTo = t.getAttribute('data-qto'); haptic('select'); return refreshSettle(); }
     if (t.hasAttribute('data-debt')) { var dd = debtByRow(+t.getAttribute('data-debt')); if (dd) openSettle(dd); return; }
     if (t.hasAttribute('data-fee')) {
@@ -2640,7 +2667,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (e.target.id === 'qRate') {
       Q.rate = e.target.value;
       var r = parseNum(Q.rate), gi = document.getElementById('qGiven');
-      if (!Q.touched && r > 0 && gi) { Q.given = String(round2(Q.d.som / r)).replace('.', ','); gi.value = Q.given; }
+      if (!Q.touched && r > 0 && gi) { Q.given = String(round2(owedOf(Q.d, Number(Q.fee) || 0) / r)).replace('.', ','); gi.value = Q.given; }
     } else if (e.target.id === 'qGiven') { Q.given = e.target.value; Q.touched = true; }
     else if (e.target.id === 'qChange') { Q.change = e.target.value; Q.changeTouched = true; return refreshSettle(true); }
     else return;

@@ -69,8 +69,9 @@ function doGet() {
 
 function auth_(initData) {
   var props = PropertiesService.getScriptProperties();
-  var token = props.getProperty('BOT_TOKEN');
-  var allowed = props.getProperty('ALLOWED_USER_ID');
+  // Nusxalashda qoʻshilib qolgan boʻshliq yoki qoʻshtirnoq imzoni buzmasin
+  var token = String(props.getProperty('BOT_TOKEN') || '').replace(/^[\s"']+|[\s"']+$/g, '');
+  var allowed = String(props.getProperty('ALLOWED_USER_ID') || '').replace(/^[\s"']+|[\s"']+$/g, '');
   if (!token || !allowed) throw new Error('Apps Script sozlanmagan: BOT_TOKEN va ALLOWED_USER_ID kerak');
   if (!initData || typeof initData !== 'string') throw new Error('Mini App’ni Telegram ichida oching');
 
@@ -253,8 +254,15 @@ function debts_(rows, tz) {
     e.som = Math.round(num_(r.values[2]) * num_(r.values[4]) * 100) / 100;
     var m = String(r.values[5]).match(/Kimdan: ([^·]+)/);
     if (m) e.lender = m[1].trim();
+    e.fee = debtFee_(r.values[5]);
+    e.owed = Math.round(e.som * (1 + e.fee / 100) * 100) / 100;
     return e;
   });
+}
+
+function debtFee_(note) {
+  var m = String(note || '').match(/komissiya (\d+(?:,\d+)?)%/);
+  return m ? Number(m[1].replace(',', '.')) : 0;
 }
 
 // Qarzni yopish: berilgan dollar yoziladi, kurs = tushgan soʻm ÷ dollar (butun son), izohga kelishilgan kurs
@@ -278,8 +286,11 @@ function settle_(req) {
     var som = Math.round(num_(v[2]) * num_(v[4]) * 100) / 100;
     if (!(som > 0)) throw new Error('Qatordagi summa notoʻgʻri');
     var agreed = Number(req.rate) > 0 ? Number(req.rate) : 0;
-    var rest = note.slice(CFG.DEBT_MARK.length).replace(/^\s*·\s*/, '');
-    var tail = rest ? ' · ' + rest : '';
+    var fee = req.fee != null && req.fee !== '' && isFinite(Number(req.fee)) ? Math.max(0, Math.min(5, Number(req.fee))) : debtFee_(note);
+    var owed = Math.round(som * (1 + fee / 100) * 100) / 100;     // komissiya bilan qaytariladigan summa
+    var parts = note.slice(CFG.DEBT_MARK.length).replace(/^\s*·\s*/, '').split(' · ').filter(function (x) { return x && !/^komissiya /.test(x); });
+    var tail = parts.length ? ' · ' + parts.join(' · ') : '';
+    var feeTxt = fee > 0 ? ', komissiya ' + fmtNum_(fee) + '%' : '';
     var dd = Utilities.formatDate(new Date(), tz, 'dd.MM');
     var vals = v.slice(), extra = null;
 
@@ -288,30 +299,31 @@ function settle_(req) {
       if (!(agreed > 0)) throw new Error('Kelishilgan kursni kiriting');
       var wallets = lists_(ss).wallets;
       if (wallets.indexOf(changeTo) < 0 || isUsd_(changeTo)) throw new Error('Qaytim qaysi soʻm hamyonga tushganini tanlang');
-      var extraUsd = given - som / agreed;
+      var extraUsd = given - owed / agreed;
       if (!(extraUsd > 0.004)) throw new Error('Qaytim yoʻq: berilgan dollar qarzdan oshmaydi');
-      var mainNote = 'Qarz yopildi ' + dd + ', kurs ' + fmtNum_(agreed) + ', $' + fmtNum_(given) + ' berildi';
+      var mainNote = 'Qarz yopildi ' + dd + ', kurs ' + fmtNum_(agreed) + feeTxt + ', $' + fmtNum_(given) + ' berildi';
       if (changeTo === String(v[6])) {
         // Qaytim oʻsha hamyonga: bitta qator, kurs = (qarz + qaytim) ÷ dollar
         vals[2] = given; vals[4] = Math.round((som + change) / given); vals[5] = mainNote + ', qaytim ' + fmtNum_(change) + tail;
         sh.getRange(row, 3, 1, 4).setValues([[given, v[3], vals[4], vals[5]]]);
       } else {
         // Qarz qatori aniq qarz summasiga (soʻm ÷ kurs), qaytim shu dollardan alohida Exchange qatori
-        vals[2] = som / agreed; vals[4] = agreed; vals[5] = mainNote + tail;
-        sh.getRange(row, 3, 1, 4).setValues([['=' + som + '/' + agreed, v[3], agreed, vals[5]]]);
+        var debtRate = Math.round(som * agreed / owed);   // komissiya boʻlmasa = kelishilgan kurs
+        vals[2] = owed / agreed; vals[4] = debtRate; vals[5] = mainNote + tail;
+        sh.getRange(row, 3, 1, 4).setValues([['=' + owed + '/' + agreed, v[3], debtRate, vals[5]]]);
         var exRate = Math.round(change / extraUsd);
         var exRow = lastDataRow_(sh, CFG.OUT.firstRow) + 1;
         if (exRow >= sh.getMaxRows()) sh.insertRowsBefore(sh.getMaxRows(), 300);
         var today = Utilities.parseDate(Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd'), tz, 'yyyy-MM-dd');
         var exNote = 'Qarz qaytimi ' + dd + ': ' + fmtNum_(change) + ' soʻm, kurs ' + fmtNum_(agreed) + tail;
-        sh.getRange(exRow, 1, 1, CFG.OUT.cols).setValues([[today, CFG.EXCHANGE, '=' + given + '-' + som + '/' + agreed, v[3], exRate, exNote, changeTo]]);
+        sh.getRange(exRow, 1, 1, CFG.OUT.cols).setValues([[today, CFG.EXCHANGE, '=' + given + '-' + owed + '/' + agreed, v[3], exRate, exNote, changeTo]]);
         extra = entry_('out', { row: exRow, values: [today, CFG.EXCHANGE, extraUsd, v[3], exRate, exNote, changeTo] }, tz);
       }
     } else {
       // Qaytim yoʻq: berilgan dollar butun qarzga ketdi, kurs = soʻm ÷ dollar
       var rate = Math.round(som / given);
       vals[2] = given; vals[4] = rate;
-      vals[5] = 'Qarz yopildi ' + dd + ', kurs ' + fmtNum_(agreed || rate) + tail;
+      vals[5] = 'Qarz yopildi ' + dd + ', kurs ' + fmtNum_(agreed || rate) + feeTxt + tail;
       sh.getRange(row, 3, 1, 4).setValues([[given, v[3], rate, vals[5]]]);
     }
     SpreadsheetApp.flush();
@@ -427,7 +439,10 @@ function buildEntry_(ss, lists, tz, en) {
   }
   var note = String(en.note || '').trim().slice(0, 300);
   var lender = debtSom > 0 ? cleanLender_(en.lender) : '';
-  if (debtSom > 0) note = CFG.DEBT_MARK + (lender ? ' · Kimdan: ' + lender : '') + (note ? ' · ' + note : '');
+  // Soʻm tushganda oʻtkazma komissiyasi sizdan olinsa: qarz = tushgan × (1 + foiz)
+  var debtFee = debtSom > 0 ? Math.round(Number(en.debtFee) * 100) / 100 : 0;
+  if (!(debtFee > 0 && debtFee <= 5)) debtFee = 0;
+  if (debtSom > 0) note = CFG.DEBT_MARK + (lender ? ' · Kimdan: ' + lender : '') + (debtFee ? ' · komissiya ' + fmtNum_(debtFee) + '%' : '') + (note ? ' · ' + note : '');
   if (/^[=+\-@]/.test(note)) note = "'" + note;
 
   var conf = type === 'in' ? CFG.IN : CFG.OUT;
@@ -437,7 +452,7 @@ function buildEntry_(ss, lists, tz, en) {
     conf: conf, vals: vals,
     saved: { sheet: type === 'in' ? 'in' : 'out', date: String(en.date), cat: cat, amount: debtSom > 0 ? debtSom / rate : amount,
              wallet: wallet, to: to, rate: rate || null, note: note.replace(/^'/, ''), som: debtSom > 0 ? debtSom : undefined,
-             lender: lender || undefined }
+             lender: lender || undefined, fee: debtFee || undefined }
   };
 }
 
