@@ -18,6 +18,7 @@
  */
 
 var CFG = {
+  VERSION: '2026-11-06',                             // ilova pastida koʻrinadi: Apps Script yangilanganini tekshirish uchun
   OUT: { name: 'Outflow', firstRow: 5, cols: 7 },   // A Date · B Outflow · C Amount · D Payment method · E Rate · F Note · G Exchange-to
   IN: { name: 'Inflow', firstRow: 7, cols: 6 },     // A Date · B Inflow · C Amount · D Payment method · E Rate · F Note
   LIST: 'List of items',                            // A Payment method · B Inflow · C Outflow · D Tip
@@ -174,6 +175,7 @@ function init_() {
     recent: recent,
     budgets: budgets_(ss),
     quick: quick,
+    version: CFG.VERSION,
     fixed: fixed_(outRows),
     debts: debts_(outRows, tz),
     lenders: lenders_(),

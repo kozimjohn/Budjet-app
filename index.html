@@ -197,6 +197,8 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
 @keyframes fresh { from { background: color-mix(in srgb, var(--accent) 12%, transparent); } to { background: transparent; } }
 .empty-note { margin: 0; color: var(--muted); font-size: 13px; }
 .rec-tip { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+.ver { margin: 4px 0 0; font-size: 11.5px; color: var(--muted); text-align: center; }
+.ver.old { color: var(--danger); font-weight: 600; }
 .old-backend { padding: 10px 12px; border-radius: 12px; border: 1px dashed var(--line); background: var(--surface); }
 .old-backend b { color: var(--ink); font-weight: 600; }
 
@@ -479,6 +481,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
         <input class="note" id="note" type="text" placeholder="Izoh (ixtiyoriy)" autocomplete="off" maxlength="200" enterkeyhint="done">
       </section>
       <section id="recentBlock" aria-label="Oxirgi yozuvlar"></section>
+      <p class="ver" id="verNote"></p>
     </div>
   </main>
 
@@ -545,6 +548,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
      Apps Script Web App manzili (…/exec bilan tugaydi). Boʻsh qolsa, ilova namuna rejimida ishlaydi. */
   var API_URL = 'https://script.google.com/macros/s/AKfycbyDNMFKNOJB5HvsJBB8B-7mjAga8PXLiVil3_vW9uw8761tszuTDC7wjMUZfJnJONRV/exec';
 
+  var APP_VERSION = '2026-11-06';   // Code.gs dagi CFG.VERSION bilan bir xil boʻlishi kerak
   var USD_WALLETS = ['Cash dollar', 'Visa', 'Master card'];
   var EXCHANGE = 'Exchange';
 
@@ -570,7 +574,9 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
   var DEBT_MARK = 'QARZ: dollar hali berilmagan';
   function isOpenDebt(r) { return !!r && r.cat === EXCHANGE && String(r.note || '').indexOf(DEBT_MARK) === 0; }
   // "Dollar keyin beriladi": dollar hamyondan soʻm hamyonga (eski Apps Script'da yoʻq)
-  function debtApplies(from, to) { return isUsd(from) && to && !isUsd(to) && !S.edit && (!LIVE || !!D.debts); }
+  function debtApplies(from, to) { return isUsd(from) && to && !isUsd(to) && !S.edit; }
+  function backendOld() { return LIVE && D && (!D.version || D.version < APP_VERSION); }
+  var OLD_BACKEND_MSG = 'Apps Script eski. Code.gs ni yangilang: Развернуть → Управление развертываниями → ✏️ → Новая версия.';
   // Oxirgi tanlangan joy keyingi safar ham tanlangan turadi (telefonda eslab qolinadi)
   function lastLender() { try { return localStorage.getItem('pb-lender-last') || ''; } catch (e) { return ''; } }
   function setLastLender(n) { try { localStorage.setItem('pb-lender-last', n); } catch (e) {} }
@@ -1145,7 +1151,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (!all) {   // Apps Script'dagi kod eski: bu boʻlim uchun maʼlumot kelmayapti
       el.recur.innerHTML = '<div class="lbl-row"><span class="lbl">Oylik toʻlovlar</span></div>' +
         '<p class="empty-note old-backend">Bu boʻlim ishlashi uchun Apps Script\'dagi <b>Code.gs</b> ni yangilang va ' +
-        '<b>Deploy → Manage deployments → ✏️ → New version</b> ni bosing.</p>';
+        '<b>Развернуть → Управление развертываниями → ✏️ → Новая версия</b> ni bosing.</p>';
       return;
     }
     var list = all.filter(function (r) { return !r.paid; });
@@ -1188,6 +1194,15 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     var p = String(isoDate).split('-').map(Number), t = new Date();
     var n = Math.round((new Date(t.getFullYear(), t.getMonth(), t.getDate()) - new Date(p[0], p[1] - 1, p[2])) / 864e5);
     return n <= 0 ? 'bugun' : n === 1 ? 'kecha' : n + ' kun oldin';
+  }
+  // Ilova va Apps Script versiyasi (Code.gs yangilanmay qolsa, shu yerda koʻrinadi)
+  function renderVersion() {
+    var n = document.getElementById('verNote');
+    if (!n) return;
+    var dm = function (v) { return v ? v.slice(8, 10) + '.' + v.slice(5, 7) : ''; };
+    if (!LIVE) { n.textContent = 'Versiya ' + dm(APP_VERSION) + ' · namuna'; n.className = 'ver'; return; }
+    if (backendOld()) { n.textContent = OLD_BACKEND_MSG + (D.version ? ' (hozir: ' + dm(D.version) + ')' : ''); n.className = 'ver old'; return; }
+    n.textContent = 'Ilova ' + dm(APP_VERSION) + ' · Apps Script ' + dm(D.version); n.className = 'ver';
   }
   function renderDebts() {
     var list = (D.debts || []).slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
@@ -1500,7 +1515,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     renderPending();
     if (V.open && V.state === 'review') renderVoice();
     else if (V.open && V.state === 'input') renderCmdOut();
-    renderEditBar(); renderDebts(); renderWallets(); renderBudgets(); renderAmount(); renderCats(); renderRecurring(); renderDates(); renderRecent(); renderKeypad(); renderSave();
+    renderVersion(); renderEditBar(); renderDebts(); renderWallets(); renderBudgets(); renderAmount(); renderCats(); renderRecurring(); renderDates(); renderRecent(); renderKeypad(); renderSave();
   }
 
   /* ---------- actions ---------- */
@@ -2585,6 +2600,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (act === 'close-sheet') return closeSheet();
     if (act === 'undo') { el.toast.hidden = true; return undo(); }
     if (act === 'debt-toggle') {
+      if (LIVE && !D.debts) { toast(OLD_BACKEND_MSG, 'error'); haptic('error'); return; }
       S.debt = !S.debt; S.amount = ''; S.prefilled = false; S.focus = 'amount'; if (!S.rate) S.rate = rateFor(S.from, S.to);
       if (S.debt && !S.lender) { var ll = lastLender(), ls = D.lenders || []; S.lender = ls.indexOf(ll) >= 0 ? ll : ls[0] || '__new'; }
       haptic('select'); render();
