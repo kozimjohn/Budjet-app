@@ -196,6 +196,8 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
 @keyframes fresh { from { background: color-mix(in srgb, var(--accent) 12%, transparent); } to { background: transparent; } }
 .empty-note { margin: 0; color: var(--muted); font-size: 13px; }
 .rec-tip { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+.old-backend { padding: 10px 12px; border-radius: 12px; border: 1px dashed var(--line); background: var(--surface); }
+.old-backend b { color: var(--ink); font-weight: 600; }
 
 .state { padding: 48px 8px; text-align: center; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .state strong { color: var(--ink); font-size: 16px; }
@@ -819,11 +821,13 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       '<span class="w-name">' + esc(w) + '</span><span class="w-bal' + (bal < 0 ? ' neg' : '') + '">' + esc(money(bal, w)) + '</span></button>';
   }
   // Doim koʻrinadigan hamyonlar; qolganlari "Boshqa" ostida (tanlangani baribir koʻrinadi)
-  var MAIN_WALLETS = ['Cash sum', 'Cash dollar', 'Card sum'];
+  // Tartib ham shu: avval Cash dollar, keyin Cash sum, Card sum; qolganlari sheetdagi tartibda
+  var MAIN_WALLETS = ['Cash dollar', 'Cash sum', 'Card sum'];
   function shownWallets(sel) {
-    var main = D.wallets.filter(function (w) { return MAIN_WALLETS.indexOf(w) >= 0; });
-    if (S.allW || !main.length) return D.wallets.slice();
-    return D.wallets.filter(function (w) { return MAIN_WALLETS.indexOf(w) >= 0 || sel.indexOf(w) >= 0; });
+    var main = MAIN_WALLETS.filter(function (w) { return D.wallets.indexOf(w) >= 0; });
+    var rest = D.wallets.filter(function (w) { return main.indexOf(w) < 0; });
+    if (S.allW || !main.length) return main.concat(rest);
+    return main.concat(rest.filter(function (w) { return sel.indexOf(w) >= 0; }));
   }
   function moreWalletsBtn(shown) {
     var hidden = D.wallets.length - shown.length;
@@ -1027,8 +1031,14 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
   var RECUR_SHOW = 4;
   function renderRecurring() {
     var all = D.recurring;
-    el.recur.hidden = S.mode !== 'out' || !all;        // eski Apps Script (roʻyxat yoʻq) boʻlsa koʻrinmaydi
+    el.recur.hidden = S.mode !== 'out' || (!all && !LIVE);
     if (el.recur.hidden) return;
+    if (!all) {   // Apps Script'dagi kod eski: bu boʻlim uchun maʼlumot kelmayapti
+      el.recur.innerHTML = '<div class="lbl-row"><span class="lbl">Oylik toʻlovlar</span></div>' +
+        '<p class="empty-note old-backend">Bu boʻlim ishlashi uchun Apps Script\'dagi <b>Code.gs</b> ni yangilang va ' +
+        '<b>Deploy → Manage deployments → ✏️ → New version</b> ni bosing.</p>';
+      return;
+    }
     var list = all.filter(function (r) { return !r.paid; });
     var addBtn = '<button class="link sm" data-act="recur-add">+ Qoʻshish</button>';
     if (!list.length) {

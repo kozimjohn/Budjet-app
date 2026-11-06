@@ -46,7 +46,7 @@ Ilova faqat A–G ustunlariga yozadi. H va undan keyingi formulali ustunlarga te
   - **"+ Qo'shish"** bilan istalgan oylik to'lovni (maktab, bog'cha, internet va boshqa) summa, hamyon va har oydagi sanasi bilan o'zingiz qo'shasiz; ro'yxatdagilarni × bilan olib tashlaysiz. Ro'yxat Apps Script'ning `RECURRING` property'sida saqlanadi (ilova o'zi yozadi), shuning uchun telefonda ham, kompyuterda ham bir xil.
 - **Chek rasmi yoki PDF.** Mikrofon oynasida "Chek rasmi yoki PDF" tugmasi bor: rasmni Gemini o'qiydi va yozuvni tekshirish uchun ko'rsatadi. Gemini kaliti kerak.
 - **Internet yo'q bo'lsa.** Yozuv telefonda navbatga qo'yiladi ("navbatda" belgisi bilan) va internet qaytgach o'zi yuboriladi. Ilovani yopib ochsangiz ham navbat saqlanib qoladi. Javob yo'qolib, yozuv qayta yuborilsa ham sheetga ikki marta yozilmaydi.
-- **Hamyonlar ixcham ko'rinadi:** doim Cash sum, Cash dollar, Card sum turadi, qolganlari (Visa, Master card) "Boshqa (2)" ni bosganda chiqadi. Yonida hammasining dollardagi jami summasi (so'mdagilar oxirgi kurs bo'yicha) turadi.
+- **Hamyonlar ixcham ko'rinadi:** doim Cash dollar, Cash sum, Card sum (shu tartibda) turadi, qolganlari (Visa, Master card) "Boshqa (2)" ni bosganda chiqadi. Yonida hammasining dollardagi jami summasi (so'mdagilar oxirgi kurs bo'yicha) turadi.
 - **"Oxirgi yozuvlar"** faqat Chiqim bo'limida ko'rinadi: oxirgi 10 ta yozuv (kirim va almashtirishlar ham). "Yashirish" bilan yig'ib qo'yish mumkin, telefon buni eslab qoladi.
 
 ## O'rnatish
