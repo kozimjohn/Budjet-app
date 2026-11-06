@@ -114,6 +114,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
   background: var(--wc); margin-right: 6px; vertical-align: 1px; }
 .wallet .w-bal { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .wallet .w-bal.neg { color: var(--danger); }
+.wallet .w-res { font-size: 11px; font-weight: 600; color: #8A5A12; white-space: nowrap; }
 .wallet[aria-pressed="true"] { border-color: var(--wc); box-shadow: inset 0 0 0 1px var(--wc);
   background: color-mix(in srgb, var(--wc) 12%, var(--surface)); }
 .wallet[aria-pressed="true"] .w-name { color: var(--wc); }
@@ -268,11 +269,42 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
 .recur .chip { flex: none; }
 .wgrid { display: flex; flex-wrap: wrap; gap: 8px; }
 .wgrid .wallet { flex: 1 1 auto; }
+.wgrid.tight { gap: 6px; }
+.wgrid.tight .wallet { padding: 6px 8px; }
+.wgrid.tight .w-name { font-size: 11px; }
+.wgrid.tight .w-bal { font-size: 12.5px; }
+.wgrid.tighter .w-bal { font-size: 11.5px; letter-spacing: -.01em; }
+.wgrid.tighter .w-name::before { margin-right: 4px; }
 .lbl-side { display: inline-flex; align-items: center; gap: 12px; }
 .link.sm { font-size: 12.5px; }
 .total.late { color: var(--danger); white-space: nowrap; }
 .rc { --wc: var(--muted); flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 7px 12px;
   border-radius: 12px; border: 1px solid var(--line); background: var(--surface); text-align: left; }
+.debt { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 14px; border-radius: 14px;
+  border: 1px solid color-mix(in srgb, #B7791F 45%, var(--line)); background: color-mix(in srgb, #B7791F 7%, var(--surface)); }
+.debt + .debt { margin-top: 8px; }
+.debt-main { flex: 1; min-width: 0; }
+.debt-main .lbl { color: #8A5A12; }
+.debt-title { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.debt-sub { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.debt-btn { flex: none; height: 36px; padding: 0 12px; border-radius: 10px; background: var(--ex); color: #fff; font-weight: 600; font-size: 13px; }
+.debt-row { margin-bottom: 8px; }
+.f-val.long { font-size: 20px; }
+.f-val .amt-cur { white-space: nowrap; }
+.f-val > span:first-child { white-space: nowrap; }
+.lender-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.lender-row .chips { gap: 6px; }
+.debt-w { font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.r-field:focus-within { outline: none; }
+.r-input:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
+.set-info { margin: 0; font-size: 14px; }
+.set-info b { font-weight: 700; }
+.set-res { margin: 0; font-size: 13px; color: var(--muted); min-height: 18px; }
+.set-res b { color: var(--ink); }
+.r-row.two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.change-box { display: flex; flex-direction: column; gap: 8px; }
+.change-box:empty { display: none; }
+.change-box .chips { gap: 6px; }
 .more-btn { display: block; margin: 8px auto 0; padding: 4px 10px; font-size: 13px; font-weight: 600; color: var(--accent); }
 .recur-body { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; padding-bottom: 4px; }
 .recur-body > * { flex: none; }
@@ -436,6 +468,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     <section class="state" id="state" hidden></section>
     <div class="form" id="form">
       <section id="editBar" class="editbar" aria-live="polite" hidden></section>
+      <section id="debtBlock" aria-label="Ochiq qarzlar" hidden></section>
       <section id="walletBlock" aria-label="Hamyon"></section>
       <section id="budgetBlock" aria-label="Byudjet" hidden></section>
       <section id="amountBlock" aria-label="Summa"></section>
@@ -487,6 +520,14 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     <input type="file" id="receiptFile" accept="image/*,application/pdf" hidden>
   </div>
 
+  <div class="sheet" id="settleSheet" role="dialog" aria-modal="true" aria-labelledby="settleTitle" hidden>
+    <div class="sheet-head">
+      <h2 id="settleTitle">Qarzni yopish</h2>
+      <button class="icon-btn" data-act="settle-close" aria-label="Yopish"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    </div>
+    <div class="recur-body" id="settleBody"></div>
+  </div>
+
   <div class="sheet" id="recurSheet" role="dialog" aria-modal="true" aria-labelledby="recurTitle" hidden>
     <div class="sheet-head">
       <h2 id="recurTitle">Oylik toʻlov qoʻshish</h2>
@@ -521,8 +562,20 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     demo: $('#demoNote'), scroll: $('#scroll'),
     voiceSheet: $('#voiceSheet'), voiceBody: $('#voiceBody'), mic: $('#micBtn'), pending: $('#pendingBtn'),
     sync: $('#syncNote'), dock: $('#dock'), budget: $('#budgetBlock'), recur: $('#recurBlock'),
-    editBar: $('#editBar'), receiptFile: $('#receiptFile'), recurSheet: $('#recurSheet'), recurBody: $('#recurBody')
+    editBar: $('#editBar'), receiptFile: $('#receiptFile'), recurSheet: $('#recurSheet'), recurBody: $('#recurBody'),
+    debts: $('#debtBlock'), settleSheet: $('#settleSheet'), settleBody: $('#settleBody')
   };
+  // Qarzni yopish oynasi (soʻm oldin tushgan, dollar endi berilyapti)
+  var Q = { open: false, d: null, rate: '', given: '', touched: false, busy: false, changeTo: null, change: '', changeTouched: false };
+  var DEBT_MARK = 'QARZ: dollar hali berilmagan';
+  function isOpenDebt(r) { return !!r && r.cat === EXCHANGE && String(r.note || '').indexOf(DEBT_MARK) === 0; }
+  // "Dollar keyin beriladi": dollar hamyondan soʻm hamyonga (eski Apps Script'da yoʻq)
+  function debtApplies(from, to) { return isUsd(from) && to && !isUsd(to) && !S.edit && (!LIVE || !!D.debts); }
+  // Oxirgi tanlangan joy keyingi safar ham tanlangan turadi (telefonda eslab qolinadi)
+  function lastLender() { try { return localStorage.getItem('pb-lender-last') || ''; } catch (e) { return ''; } }
+  function setLastLender(n) { try { localStorage.setItem('pb-lender-last', n); } catch (e) {} }
+  function lenderOf(r) { var m = String((r && r.note) || '').match(/Kimdan: ([^·]+)/); return r && r.lender ? r.lender : m ? m[1].trim() : ''; }
+  function parseNum(x) { return parseFloat(String(x == null ? '' : x).replace(/\s/g, '').replace(',', '.')); }
   // Oylik toʻlov qoʻshish oynasi
   var R = { open: false, cat: null, amount: '', wallet: null, day: '', busy: false };
   var VOICE_MAX_SEC = 60;
@@ -701,6 +754,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
           if (S.lastSaved === was) S.lastSaved = r.saved;
           if (S.lastGroup) S.lastGroup = S.lastGroup.map(function (x) { return x === was ? r.saved : x; });
         } else D.recent.unshift(r.saved);
+        addDebt(r.saved);
         return next();
       }, function (e) {
         if (isNetErr(e)) throw e;
@@ -743,6 +797,8 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       budgets: [{ name: 'Short-term expenses', income: 6000, spent: 4300, balance: 1700 }, { name: 'Medium-term expenses', income: 1300, spent: 1450, balance: -150 },
         { name: 'Long-term expenses', income: 1300, spent: 0, balance: 1300 }],
       fixed: { 'Charity': { a: 20000, w: 'Card sum' } },
+      lenders: ['Doʻst', 'Doʻkon'],
+      debts: [],
       quick: { out: { 'Grocery ': [{ a: 180000, w: 'Cash sum' }, { a: 200000, w: 'Cash sum' }, { a: 60000, w: 'Cash sum' }],
         'Mobile payment ': [{ a: 50000, w: 'Card sum' }], 'Taxi': [{ a: 30000, w: 'Card sum' }, { a: 15000, w: 'Card sum' }] }, in: {} },
       recurring: [{ cat: 'Internet', amount: 150000, wallet: 'Card sum', day: demoDay(2), paid: false }, { cat: 'Mobile payment ', amount: 50000, wallet: 'Card sum', day: demoDay(-3), paid: false },
@@ -772,6 +828,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     applyBalances(b, entry, 1);
     var saved = { sheet: entry.type === 'in' ? 'in' : 'out', row: ++demoRow, date: entry.date, cat: entry.category, amount: entry.amount,
       wallet: entry.wallet, to: entry.to || '', rate: entry.rate || null, note: entry.note };
+    if (entry.debtSom) { saved.som = entry.debtSom; saved.lender = entry.lender || undefined; saved.note = DEBT_MARK + (entry.lender ? ' · Kimdan: ' + entry.lender : '') + (entry.note ? ' · ' + entry.note : ''); }
     return new Promise(function (res) { setTimeout(function () { res({ saved: saved, balances: b }); }, 350); });
   }
   function demoUpdate(old, entry) {
@@ -799,6 +856,11 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (S.mode === 'ex') {
       if (!S.from || !S.to) return { ok: false, msg: 'Hamyonlarni tanlang' };
       if (S.from === S.to) return { ok: false, msg: 'Ikki xil hamyon tanlang' };
+      if (S.debt && debtApplies(S.from, S.to)) {
+        if (!(amt > 0)) return { ok: false, msg: 'Tushgan summani kiriting' };
+        if (!(parseFloat(S.rate) > 0)) return { ok: false, msg: 'Kursni kiriting' };
+        return { ok: true, msg: 'Saqlash · ' + money(amt, S.to) + ' qarzga' };
+      }
       if (!(amt > 0)) return { ok: false, msg: 'Summani kiriting' };
       var rate = parseFloat(S.rate);
       if (isUsd(S.from) !== isUsd(S.to) && !(rate > 0)) return { ok: false, msg: 'Kursni kiriting' };
@@ -815,10 +877,14 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
   var WALLET_COLOR = { 'Cash sum': '--w-cash-sum', 'Card sum': '--w-card-sum', 'Cash dollar': '--w-cash-usd', 'Visa': '--w-visa', 'Master card': '--w-master' };
   function wcolor(w) { return 'var(' + (WALLET_COLOR[w] || '--muted') + ')'; }
   function wdot(w) { return '<span class="wdot" style="--wc:' + wcolor(w) + '" aria-hidden="true"></span>'; }
+  // Ochiq qarz uchun band qilingan dollar: sheetda ayrilgan, lekin hali qoʻlingizda
+  function reservedFor(w) { return (D.debts || []).reduce(function (s, d) { return s + (d.wallet === w ? Number(d.amount) || 0 : 0); }, 0); }
   function walletBtn(w, role, pressed, disabled) {
-    var bal = D.balances[w] || 0;
+    var res = reservedFor(w);
+    var bal = (D.balances[w] || 0) + res;   // qoʻldagi haqiqiy pul
     return '<button class="wallet" style="--wc:' + wcolor(w) + '" data-w="' + esc(w) + '" data-role="' + role + '" aria-pressed="' + pressed + '"' + (disabled ? ' disabled' : '') + '>' +
-      '<span class="w-name">' + esc(w) + '</span><span class="w-bal' + (bal < 0 ? ' neg' : '') + '">' + esc(money(bal, w)) + '</span></button>';
+      '<span class="w-name">' + esc(w) + '</span><span class="w-bal' + (bal < 0 ? ' neg' : '') + '">' + esc(money(bal, w)) + '</span>' +
+      (res > 0 ? '<span class="w-res" title="Ochiq qarz uchun band qilingan">' + esc(money(res, w)) + ' band</span>' : '') + '</button>';
   }
   // Doim koʻrinadigan hamyonlar; qolganlari "Boshqa" ostida (tanlangani baribir koʻrinadi)
   // Tartib ham shu: avval Cash dollar, keyin Cash sum, Card sum; qolganlari sheetdagi tartibda
@@ -843,6 +909,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
         '<div class="wgrid">' + sh.map(function (w) { return walletBtn(w, 'from', w === S.from, false); }).join('') + '</div></div>' +
         '<div><div class="ex-row-head"><span class="lbl">Qayerga</span>' + moreWalletsBtn(sh) + '</div>' +
         '<div class="wgrid">' + sh.map(function (w) { return walletBtn(w, 'to', w === S.to, w === S.from); }).join('') + '</div></div></div>';
+      fitWallets();
       return;
     }
     var cur = S.wallet[S.mode];
@@ -850,6 +917,17 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     el.wallet.innerHTML = '<div class="lbl-row"><span class="lbl">Hamyon</span><span class="lbl-side">' +
       (isFinite(tot) ? '<span class="total">Jami ≈ <b>$' + esc(fmtNum(tot, 0)) + '</b></span>' : '') + moreWalletsBtn(shown) + '</span></div><div class="wgrid">' +
       shown.map(function (w) { return walletBtn(w, 'wallet', w === cur, false); }).join('') + '</div>';
+    fitWallets();
+  }
+  // Uchta asosiy hamyon doim bir qatorda: sigʻmasa yozuv biroz kichrayadi
+  function fitWallets() {
+    if (S.allW) return;
+    Array.prototype.forEach.call(el.wallet.querySelectorAll('.wgrid'), function (g) {
+      g.classList.remove('tight', 'tighter');
+      var oneRow = function () { var c = g.children; return !c.length || c[Math.min(2, c.length - 1)].offsetTop === c[0].offsetTop; };
+      if (!oneRow()) g.classList.add('tight');
+      if (!oneRow()) g.classList.add('tighter');
+    });
   }
   // Hamma hamyonlar dollarda: soʻmdagilar joriy kurs boʻyicha
   function totalUsd() {
@@ -900,8 +978,26 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       var rate = parseFloat(S.rate);
       var got = convert(amt, S.from, S.to, rate);
       var fUsd = isUsd(S.from);
+      var canDebt = debtApplies(S.from, S.to);
+      var debtBtn = canDebt ? '<div class="debt-row"><button class="chip sm" data-act="debt-toggle" aria-pressed="' + !!S.debt + '">Dollar keyin beriladi</button></div>' : '';
+      if (canDebt && S.debt) {
+        // Qarz: soʻm hozir tushdi, dollar keyin. Kurs taxminiy, dollar berilganda aniqlanadi
+        var est = amt > 0 && rate > 0 ? amt / rate : NaN;
+        var lenders = D.lenders || [];
+        var who = '<div class="lender-row"><span class="lbl">Kimdan</span><div class="chips">' + lenders.map(function (n) {
+            return '<button class="chip sm" data-lender="' + esc(n) + '" aria-pressed="' + (S.lender === n) + '">' + esc(n) + '</button>'; }).join('') +
+          '<button class="chip sm" data-lender="__new" aria-pressed="' + (S.lender === '__new') + '">' + (lenders.length ? '+ Boshqa' : '+ Ism yozish') + '</button></div>' +
+          (S.lender === '__new' ? '<input class="r-input" id="lenderNew" autocomplete="off" maxlength="40" placeholder="Kimdan olindi (masalan, doʻkon yoki ism)" value="' + esc(S.lenderNew || '') + '">' : '') + '</div>';
+        el.amount.innerHTML = debtBtn + who + '<div class="ex-fields">' +
+          '<button class="field" data-field="amount" aria-pressed="' + (S.focus === 'amount') + '"><span class="f-lbl">Tushdi · ' + esc(S.to) + '</span>' +
+          '<span class="f-val' + (S.amount ? '' : ' empty') + (showExpr(S.amount).length > 7 ? ' long' : '') + '"><span>' + showExpr(S.amount) + '</span>' + (S.focus === 'amount' ? caret : '') + '<span class="amt-cur">soʻm</span></span></button>' +
+          '<button class="field" data-field="rate" aria-pressed="' + (S.focus === 'rate') + '"><span class="f-lbl">Taxminiy kurs</span>' +
+          '<span class="f-val' + (S.rate ? '' : ' empty') + '"><span>' + (S.rate ? showExpr(S.rate) : '0') + '</span>' + (S.focus === 'rate' ? caret : '') + '</span></button></div>' +
+          '<div class="ex-out"><span>' + esc(S.from) + ' hamyonidan band qilinadi</span><b>' + (isFinite(est) ? '≈ ' + esc(money(est, S.from)) : '—') + '</b></div>';
+        return;
+      }
       var amountVal = (fUsd ? '<span class="amt-cur">$</span>' : '') + '<span>' + showExpr(S.amount) + '</span>' + (fUsd ? '' : '<span class="amt-cur">soʻm</span>');
-      var html = '<div class="ex-fields' + (cross ? '' : ' single') + '">' +
+      var html = debtBtn + '<div class="ex-fields' + (cross ? '' : ' single') + '">' +
         '<button class="field" data-field="amount" aria-pressed="' + (S.focus === 'amount') + '"><span class="f-lbl">Beriladi · ' + esc(S.from || '') + '</span>' +
         '<span class="f-val' + (S.amount ? '' : ' empty') + '">' + amountVal + (S.focus === 'amount' ? caret : '') + '</span></button>';
       if (cross) {
@@ -1015,7 +1111,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (selChip && selChip.hidden) { box.insertBefore(selChip, box.firstChild); chips = Array.prototype.slice.call(box.children); fit(); }
   }
   var resizeTimer = 0;
-  window.addEventListener('resize', function () { clearTimeout(resizeTimer); resizeTimer = setTimeout(function () { if (S.ready) fitCatChips(); }, 120); });
+  window.addEventListener('resize', function () { clearTimeout(resizeTimer); resizeTimer = setTimeout(function () { if (S.ready) { fitCatChips(); fitWallets(); } }, 120); });
 
   // Oylik toʻlov qachon: odatdagi kuni (sheetdagi oxirgi oylardan), bu oyning sanasi bilan
   var MONTHS_UZ = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];
@@ -1064,6 +1160,139 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       }).join('') + '</div>' +
       (more ? '<button class="more-btn" data-act="recur-toggle" aria-expanded="' + !!S.allRecur + '">' +
         (S.allRecur ? 'Yashirish' : 'Yana ' + (items.length - RECUR_SHOW) + ' ta') + '</button>' : '');
+  }
+
+  /* ---------- qarzga almashtirish: soʻm oldin, dollar keyin ---------- */
+  function addDebt(rec) {
+    if (!rec || rec.pending || !isOpenDebt(rec)) return;
+    var d = Object.assign({}, rec);
+    if (!(d.som > 0)) d.som = round2(d.amount * d.rate);
+    D.debts = (D.debts || []).filter(function (x) { return x.row !== d.row; }).concat([d]);
+  }
+  function dropDebt(rec) { if (rec && rec.sheet === 'out' && D.debts) D.debts = D.debts.filter(function (x) { return x.row !== rec.row; }); }
+  function debtByRow(row) { var f = null; (D.debts || []).forEach(function (x) { if (x.row === row) f = x; }); return f; }
+  function daysAgo(isoDate) {
+    var p = String(isoDate).split('-').map(Number), t = new Date();
+    var n = Math.round((new Date(t.getFullYear(), t.getMonth(), t.getDate()) - new Date(p[0], p[1] - 1, p[2])) / 864e5);
+    return n <= 0 ? 'bugun' : n === 1 ? 'kecha' : n + ' kun oldin';
+  }
+  function renderDebts() {
+    var list = (D.debts || []).slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+    el.debts.hidden = !list.length || !!S.edit;
+    if (el.debts.hidden) return;
+    el.debts.innerHTML = list.map(function (d) {
+      var who = lenderOf(d);
+      return '<div class="debt"><div class="debt-main"><span class="lbl">Ochiq qarz' + (who ? ' · ' + esc(who) : '') + ' · ' + esc(daysAgo(d.date)) + '</span>' +
+        '<div class="debt-title">' + esc(money(d.som, d.to)) + ' <span class="debt-w">' + esc(d.to) + '</span></div>' +
+        '<div class="debt-sub">≈ ' + esc(money(d.amount, d.wallet)) + ' beriladi · ' + esc(d.wallet) + '</div></div>' +
+        '<button class="debt-btn" data-debt="' + d.row + '">Dollar berdim</button></div>';
+    }).join('');
+  }
+  function openSettle(d) {
+    if (!S.ready || S.busy) return;
+    Q.open = true; Q.d = d; Q.busy = false; Q.touched = false; Q.changeTo = null; Q.change = ''; Q.changeTouched = false;
+    var r = parseFloat(rateFor(d.wallet, 'Cash sum')) || d.rate;
+    Q.rate = String(round2(r));
+    Q.given = String(round2(d.som / r)).replace('.', ',');
+    el.settleSheet.hidden = false; el.sheetBg.hidden = false;
+    if (IN_TG) { try { tg.BackButton.show(); } catch (e) {} }
+    haptic('select'); renderSettle(); renderSave();
+  }
+  function closeSettle() {
+    Q.open = false; el.settleSheet.hidden = true; el.sheetBg.hidden = true;
+    if (IN_TG && !S.sheetOpen && !V.open && !R.open) { try { tg.BackButton.hide(); } catch (e) {} }
+    renderSave();
+  }
+  // Ortiqcha dollar berilsa (masalan, 166,67 oʻrniga $170): farqi soʻmda qaytarilgan boʻlishi mumkin
+  var CHANGE_MIN = 1000;
+  function settleState() {
+    var d = Q.d, g = parseNum(Q.given), r = parseNum(Q.rate);
+    var eff = g > 0 ? Math.round(d.som / g) : NaN;
+    var excess = g > 0 && r > 0 ? round2(g * r - d.som) : 0;
+    var showChange = excess >= CHANGE_MIN;
+    var back = showChange && Q.changeTo && Q.changeTo !== 'none';
+    var ch = back ? (Q.changeTouched ? parseNum(Q.change) : excess) : 0;
+    var problem = !(g > 0) ? 'Berilgan dollar summasini kiriting'
+      : (eff < d.rate * 0.8 || eff > d.rate * 1.2) ? 'Summani tekshiring'
+      : showChange && !Q.changeTo ? 'Ortiqcha summa qaytarildimi? Tanlang'
+      : back && !(ch > 0 && ch <= excess * 1.5) ? 'Qaytim summasini tekshiring' : '';
+    return { g: g, r: r, eff: eff, excess: excess, showChange: showChange, back: back, ch: ch, problem: problem };
+  }
+  function settleTexts() {
+    var d = Q.d, st = settleState(), res;
+    if (st.problem && !st.showChange) res = esc(st.problem);
+    else if (st.showChange && !Q.changeTo) res = '';
+    else if (st.back) res = esc(d.wallet) + ' hamyonidan <b>' + esc(money(st.g, d.wallet)) + '</b> ayriladi · ' + esc(Q.changeTo) + ' hamyoniga <b>' + esc(money(st.ch, Q.changeTo)) + '</b> qaytim';
+    else res = esc(d.wallet) + ' hamyonidan <b>' + esc(money(st.g, d.wallet)) + '</b> ayriladi · sheetga kurs ' + esc(fmtNum(st.eff, 0)) +
+      (st.showChange && Q.changeTo === 'none' ? ' (ortiqchasi kursga qoʻshildi)' : '');
+    return {
+      res: res,
+      btn: Q.busy ? 'Saqlanmoqda…' : st.problem ? st.problem : 'Qarzni yopish · ' + money(st.g, d.wallet),
+      ok: !st.problem && !Q.busy, st: st
+    };
+  }
+  function changeBoxHtml(st) {
+    if (!st.showChange) return '';
+    var d = Q.d, som = D.wallets.filter(function (w) { return !isUsd(w); });
+    som.sort(function (a, b) { return (a === 'Cash sum' ? 0 : 1) - (b === 'Cash sum' ? 0 : 1); });
+    return '<p class="set-info">' + esc(fmtNum(st.g, 2)) + ' × ' + esc(fmtNum(st.r, 2)) + ' = ' + esc(money(st.g * st.r, d.to)) + ', qarz ' + esc(money(d.som, d.to)) +
+        ' → ortiqcha <b>' + esc(money(st.excess, d.to)) + '</b></p>' +
+      '<div class="lbl">Ortiqchasi qaytarildimi?</div><div class="chips">' +
+      som.map(function (w) { return '<button class="chip sm" data-qto="' + esc(w) + '" aria-pressed="' + (Q.changeTo === w) + '">' + esc(w) + 'ga</button>'; }).join('') +
+      '<button class="chip sm" data-qto="none" aria-pressed="' + (Q.changeTo === 'none') + '">Qaytarilmadi</button></div>' +
+      (st.back ? '<label class="r-field"><span class="lbl">Qaytim summasi</span><input class="r-input" id="qChange" inputmode="decimal" autocomplete="off" value="' +
+        esc(Q.changeTouched ? Q.change : String(st.excess).replace('.', ',')) + '"></label>' : '');
+  }
+  function renderSettle() {
+    if (!Q.open) return;
+    var d = Q.d, tx = settleTexts();
+    el.settleBody.innerHTML =
+      '<p class="set-info">' + (lenderOf(d) ? '<b>' + esc(lenderOf(d)) + '</b>dan ' : '') + esc(d.to) + ' hamyoniga ' + esc(ddmm(d.date)) + ' kuni tushgan: <b>' + esc(money(d.som, d.to)) + '</b></p>' +
+      '<div class="r-row two"><label class="r-field"><span class="lbl">Kelishilgan kurs</span><input class="r-input" id="qRate" inputmode="decimal" autocomplete="off" value="' + esc(Q.rate) + '"></label>' +
+      '<label class="r-field"><span class="lbl">Berilgan dollar</span><input class="r-input" id="qGiven" inputmode="decimal" autocomplete="off" value="' + esc(Q.given) + '"></label></div>' +
+      '<div class="change-box" id="qChangeBox">' + changeBoxHtml(tx.st) + '</div>' +
+      '<p class="set-res" id="qRes">' + tx.res + '</p>' +
+      '<button class="btn primary" data-act="settle-save"' + (tx.ok ? '' : ' disabled') + '>' + esc(tx.btn) + '</button>' +
+      '<button class="linkish" data-act="settle-edit">Yozuvni tahrirlash yoki oʻchirish</button>';
+  }
+  // Yozish paytida maydonlar qayta chizilmaydi (fokus yoʻqolmasin); qaytim bloki faqat koʻrinishi oʻzgarganda yangilanadi
+  function refreshSettle(keepBox) {
+    var tx = settleTexts(), res = document.getElementById('qRes'), b = el.settleBody.querySelector('[data-act="settle-save"]'), box = document.getElementById('qChangeBox');
+    if (box && !keepBox) box.innerHTML = changeBoxHtml(tx.st);
+    if (res) res.innerHTML = tx.res;
+    if (b) { b.textContent = tx.btn; b.disabled = !tx.ok; }
+  }
+  function demoSettle(d, g, r, change, to) {
+    var b = Object.assign({}, D.balances);
+    applyBalances(b, d, -1);
+    var plain = function (n) { return fmtNum(n, 2).replace(/[\u202F\u00A0]/g, ' '); };
+    var tail = lenderOf(d) ? ' · Kimdan: ' + lenderOf(d) : '', dd = ddmm(iso(new Date())), extra = null, saved;
+    if (change > 0 && to === d.to) saved = { amount: g, rate: Math.round((d.som + change) / g), note: 'Qarz yopildi ' + dd + ', kurs ' + plain(r) + ', $' + plain(g) + ' berildi, qaytim ' + plain(change) + tail };
+    else if (change > 0) {
+      saved = { amount: d.som / r, rate: r, note: 'Qarz yopildi ' + dd + ', kurs ' + plain(r) + ', $' + plain(g) + ' berildi' + tail };
+      extra = { sheet: 'out', row: ++demoRow, date: iso(new Date()), cat: EXCHANGE, amount: g - d.som / r, wallet: d.wallet, to: to,
+        rate: Math.round(change / (g - d.som / r)), note: 'Qarz qaytimi ' + dd + ': ' + plain(change) + ' soʻm, kurs ' + plain(r) + tail };
+    } else saved = { amount: g, rate: Math.round(d.som / g), note: 'Qarz yopildi ' + dd + ', kurs ' + plain(r || Math.round(d.som / g)) + tail };
+    saved = Object.assign({ sheet: 'out', row: d.row, date: d.date, cat: EXCHANGE, wallet: d.wallet, to: d.to }, saved);
+    applyBalances(b, saved, 1); if (extra) applyBalances(b, extra, 1);
+    return new Promise(function (res) { setTimeout(function () { res({ saved: saved, extra: extra, balances: b, debts: (D.debts || []).filter(function (x) { return x.row !== d.row; }) }); }, 300); });
+  }
+  function settleSave() {
+    var d = Q.d, st = settleState();
+    if (Q.busy || st.problem) return;
+    Q.busy = true; refreshSettle();
+    var ch = st.back ? round2(st.ch) : 0, to = st.back ? Q.changeTo : '';
+    (LIVE ? api('settle', { ref: refOf(d), given: round2(st.g), rate: st.r > 0 ? st.r : null, change: ch, changeTo: to }) : demoSettle(d, round2(st.g), st.r, ch, to)).then(function (res) {
+      setBase(res.balances); if (res.budgets) D.budgets = res.budgets;
+      D.debts = res.debts || [];
+      var i = -1; D.recent.forEach(function (x, j) { if (i < 0 && x.sheet === 'out' && x.row === d.row) i = j; });
+      if (i >= 0) { if (S.lastSaved === D.recent[i]) { S.lastSaved = null; S.lastGroup = null; } D.recent[i] = res.saved; }
+      if (res.extra) D.recent.unshift(res.extra);
+      writeCache(); Q.busy = false; closeSettle(); render();
+      toast('Qarz yopildi' + (lenderOf(d) ? ' (' + lenderOf(d) + ')' : '') + ': ' + money(round2(st.g), d.wallet) + ' berildi' + (st.r > 0 ? ', kurs ' + fmtNum(st.r, 2) : '') +
+        (ch > 0 ? ', qaytim ' + money(ch, to) + ' → ' + to : ''), 'ok');
+      haptic('success');
+    }, function (e) { Q.busy = false; refreshSettle(); toast('Qarz yopilmadi. ' + apiHint(e), 'error'); haptic('error'); });
   }
 
   /* ---------- oylik toʻlov qoʻshish ---------- */
@@ -1188,7 +1417,8 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
         ? [r.rate ? esc('kurs ' + fmtNum(r.rate, 2)) : '', esc(ddmm(r.date))]
         : [r.wallet ? wdot(r.wallet) + esc(r.wallet) : '', esc(ddmm(r.date)), esc(r.note)]).filter(Boolean).join(' · ');
       if (r.pending) sub = '<span class="pend">navbatda</span>' + (sub ? ' · ' + sub : '');
-      var amt = (k === 'in' ? '+' : k === 'out' ? '−' : '') + money(r.amount, r.wallet);
+      else if (isOpenDebt(r)) sub = '<span class="pend">qarz' + (lenderOf(r) ? ' · ' + esc(lenderOf(r)) : '') + ' · dollar berilmagan</span>' + (sub ? ' · ' + sub : '');
+      var amt = (k === 'in' ? '+' : k === 'out' ? '−' : '') + (isOpenDebt(r) ? '≈ ' : '') + money(r.amount, r.wallet);
       var mark = k === 'ex' ? ICON.ex : (k === 'in' ? '+' : '−');
       var mine = S.lastSaved === r;
       var fresh = mine || (S.lastGroup && S.lastSaved && S.lastGroup.indexOf(r) >= 0);
@@ -1230,7 +1460,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       el.save.hidden = true;
       try {
         tg.MainButton.setParams({
-          text: text, is_visible: !S.sheetOpen && !V.open && !R.open && S.ready, is_active: v.ok && !S.busy,
+          text: text, is_visible: !S.sheetOpen && !V.open && !R.open && !Q.open && S.ready, is_active: v.ok && !S.busy,
           color: v.ok ? cssVar('--accent') : cssVar('--sunken'), text_color: v.ok ? cssVar('--on-accent') : cssVar('--muted')
         });
         if (S.busy) tg.MainButton.showProgress(false); else tg.MainButton.hideProgress();
@@ -1249,7 +1479,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     renderPending();
     if (V.open && V.state === 'review') renderVoice();
     else if (V.open && V.state === 'input') renderCmdOut();
-    renderEditBar(); renderWallets(); renderBudgets(); renderAmount(); renderCats(); renderRecurring(); renderDates(); renderRecent(); renderKeypad(); renderSave();
+    renderEditBar(); renderDebts(); renderWallets(); renderBudgets(); renderAmount(); renderCats(); renderRecurring(); renderDates(); renderRecent(); renderKeypad(); renderSave();
   }
 
   /* ---------- actions ---------- */
@@ -1323,7 +1553,12 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     var expr = S.amount.indexOf('+') >= 0 ? S.amount.replace(/\+$/, '') : '';
     var note = el.note.value.trim();
     var entry;
-    if (S.mode === 'ex') {
+    if (S.mode === 'ex' && S.debt && debtApplies(S.from, S.to)) {
+      var dr = parseFloat(S.rate);
+      entry = { type: 'exchange', date: S.date, category: EXCHANGE, amount: amt / dr, expr: '', wallet: S.from, to: S.to,
+        rate: dr, note: note, feePct: 0, got: 0, debtSom: amt,
+        lender: S.lender === '__new' ? String(S.lenderNew || '').trim() : (S.lender || '') };
+    } else if (S.mode === 'ex') {
       var cross = isUsd(S.from) !== isUsd(S.to);
       entry = { type: 'exchange', date: S.date, category: EXCHANGE, amount: amt, expr: expr, wallet: S.from, to: S.to,
         rate: cross ? parseFloat(S.rate) : null, note: note, feePct: feeApplies(S.from, S.to) && !S.edit && S.fee !== 'got' ? (parseFloat(S.fee) || 0) : 0,
@@ -1339,7 +1574,13 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       var label = entry.type === 'exchange' ? entry.wallet + ' → ' + entry.to : String(entry.category).trim();
       var feeTxt = res && res.fee > 0 ? ' → ' + money(res.net, entry.to) + ' (komissiya ' + pctLabel(res.pct) + ')' : '';
       if (res && res.pending) toast('Internet yoʻq: ' + label + ' navbatga qoʻyildi, ulanganda oʻzi yuboriladi', 'ok', true);
+      else if (entry.debtSom) toast('Qarz yozildi' + (entry.lender ? ' (' + entry.lender + ')' : '') + ': ' + entry.to + ' hamyoniga ' + money(entry.debtSom, entry.to) + ', dollar keyin beriladi', 'ok', true);
       else toast('Saqlandi: ' + label + ', ' + money(entry.amount, entry.wallet) + feeTxt, 'ok', true);
+      if (entry.debtSom) {
+        S.debt = false;
+        if (entry.lender) setLastLender(entry.lender);
+        S.lender = ''; S.lenderNew = '';
+      }
       haptic('success');
     }).catch(function (e) {
       toast('Saqlanmadi. ' + e.message, 'error');
@@ -1383,6 +1624,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       setBase(res.balances); if (res.budgets) D.budgets = res.budgets;
       var i = D.recent.indexOf(r);
       if (i >= 0) D.recent[i] = res.saved;
+      dropDebt(r); addDebt(res.saved);
       if (S.lastSaved === r) { S.lastSaved = null; S.lastGroup = null; }
       var label = res.saved.cat === EXCHANGE ? res.saved.wallet + ' → ' + res.saved.to : String(res.saved.cat).trim();
       endEdit(); writeCache();
@@ -1406,6 +1648,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     p.then(function (res) {
       setBase(res.balances); if (res.budgets) D.budgets = res.budgets;
       D.recent = D.recent.filter(function (x) { return x !== r; });
+      dropDebt(r);
       if (S.lastSaved === r) { S.lastSaved = null; S.lastGroup = null; }
       endEdit(); writeCache();
       toast('Yozuv sheetdan oʻchirildi', 'ok'); haptic('warning');
@@ -1439,6 +1682,8 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
       if (entry.type === 'exchange' && entry.rate) { D.pairRate[entry.wallet + '>' + entry.to] = entry.rate; D.lastRate = entry.rate; }
       if (entry.type !== 'exchange') { var u = D.usage[entry.type]; u[entry.category] = (u[entry.category] || 0) + 1; }
       if (r.budgets) D.budgets = r.budgets;
+      if (r.lenders) D.lenders = r.lenders;
+      addDebt(r.saved);
       if (entry.type === 'out' && String(entry.date).slice(0, 7) === iso(new Date()).slice(0, 7)) {
         (D.recurring || []).forEach(function (x) { if (x.cat === entry.category) x.paid = true; });
       }
@@ -2165,6 +2410,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
         setBase(res.balances);
         if (res.budgets) D.budgets = res.budgets;
         D.recent = D.recent.filter(function (x) { return x !== r; });
+        dropDebt(r);
         return step();
       });
     };
@@ -2279,8 +2525,12 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
   /* ---------- events ---------- */
   document.getElementById('app').addEventListener('click', function (e) {
     // Summa va klaviaturadan tashqari joy bosilsa, klaviatura yopiladi (kategoriyalar toʻliq koʻrinadi)
+    if (e.target.id === 'lenderNew') {   // ism maydoni: raqam klaviaturasi yopiladi, maydon fokusda qoladi
+      if (S.kb) { closeKb(); var lf = document.getElementById('lenderNew'); if (lf) lf.focus(); }
+      return;
+    }
     if (S.kb && !e.target.closest('#dock, .amount, .field')) closeKb();
-    var t = e.target.closest('[data-k],[data-set-mode],[data-w],[data-cat],[data-date],[data-field],[data-act],[data-vdel],[data-vedit],[data-example],[data-fee],[data-ch],[data-quick],[data-recur],[data-rec],[data-rcat],[data-rw],[data-rdel]');
+    var t = e.target.closest('[data-k],[data-set-mode],[data-w],[data-cat],[data-date],[data-field],[data-act],[data-vdel],[data-vedit],[data-example],[data-fee],[data-ch],[data-quick],[data-recur],[data-rec],[data-rcat],[data-rw],[data-rdel],[data-debt],[data-lender],[data-qto]');
     if (!t || t.disabled) return;
     if (t.hasAttribute('data-k')) return press(t.getAttribute('data-k'));
     if (t.hasAttribute('data-rcat')) { recurPick(t.getAttribute('data-rcat')); haptic('select'); return renderRecurSheet(); }
@@ -2313,6 +2563,22 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (act === 'open-sheet') return openSheet();
     if (act === 'close-sheet') return closeSheet();
     if (act === 'undo') { el.toast.hidden = true; return undo(); }
+    if (act === 'debt-toggle') {
+      S.debt = !S.debt; S.amount = ''; S.prefilled = false; S.focus = 'amount'; if (!S.rate) S.rate = rateFor(S.from, S.to);
+      if (S.debt && !S.lender) { var ll = lastLender(), ls = D.lenders || []; S.lender = ls.indexOf(ll) >= 0 ? ll : ls[0] || '__new'; }
+      haptic('select'); render();
+      var ln = document.getElementById('lenderNew'); if (S.debt && ln && !(D.lenders || []).length) ln.focus();
+      return;
+    }
+    if (t.hasAttribute('data-lender')) {
+      S.lender = S.lender === t.getAttribute('data-lender') && S.lender !== '__new' ? '' : t.getAttribute('data-lender');
+      haptic('select'); renderAmount(); renderSave();
+      var li = document.getElementById('lenderNew'); if (li) li.focus();
+      return;
+    }
+    if (act === 'settle-close') return closeSettle();
+    if (act === 'settle-save') return settleSave();
+    if (act === 'settle-edit') { var se = Q.d; closeSettle(); var sr = null; D.recent.forEach(function (x) { if (x.sheet === 'out' && x.row === se.row) sr = x; }); return startEdit(sr || se); }
     if (act === 'recur-add') { haptic('select'); return openRecurSheet(); }
     if (act === 'recur-close') return closeRecurSheet();
     if (act === 'recur-save') return recurSave();
@@ -2326,7 +2592,13 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (act === 'edit-cancel') { endEdit(); haptic('select'); return render(); }
     if (act === 'edit-delete') return deleteEdit();
     if (act === 'receipt') return pickReceipt();
-    if (t.hasAttribute('data-rec') && !act) return startEdit(D.recent[+t.getAttribute('data-rec')]);
+    if (t.hasAttribute('data-rec') && !act) {
+      var rr = D.recent[+t.getAttribute('data-rec')];
+      if (isOpenDebt(rr) && !rr.pending) { var od = debtByRow(rr.row); if (od) return openSettle(od); }
+      return startEdit(rr);
+    }
+    if (t.hasAttribute('data-qto')) { Q.changeTo = t.getAttribute('data-qto'); haptic('select'); return refreshSettle(); }
+    if (t.hasAttribute('data-debt')) { var dd = debtByRow(+t.getAttribute('data-debt')); if (dd) openSettle(dd); return; }
     if (t.hasAttribute('data-fee')) {
       S.fee = t.getAttribute('data-fee'); haptic('select');
       if (S.fee === 'got') { S.focus = 'got'; openKb(); return renderSave(); }
@@ -2349,7 +2621,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     if (t.hasAttribute('data-vdel')) { if (!S.busy) { V.entries.splice(+t.getAttribute('data-vdel'), 1); haptic('select'); renderVoice(); } return; }
     if (t.hasAttribute('data-vedit')) return editVoiceEntry(+t.getAttribute('data-vedit'));
   });
-  function closeTop() { if (R.open) closeRecurSheet(); else if (V.open) closeVoiceSheet(); else if (S.sheetOpen) closeSheet(); }
+  function closeTop() { if (Q.open) closeSettle(); else if (R.open) closeRecurSheet(); else if (V.open) closeVoiceSheet(); else if (S.sheetOpen) closeSheet(); }
   el.sheetBg.addEventListener('click', closeTop);
   el.wallet.addEventListener('scroll', markScroll, true);
   el.receiptFile.addEventListener('change', function () { var f = el.receiptFile.files && el.receiptFile.files[0]; if (f) readReceipt(f); });
@@ -2363,6 +2635,19 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     var b = el.recurBody.querySelector('.r-save'), pr = recurProblem();
     if (b) { b.disabled = !!pr || R.busy; b.textContent = pr || ((recurOf(R.cat) ? 'Oʻzgartirish · ' : 'Eslatmaga qoʻshish · ') + 'har oy ' + Number(R.day) + '-sanada'); }
   });
+  el.amount.addEventListener('input', function (e) { if (e.target.id === 'lenderNew') S.lenderNew = e.target.value; });
+  el.settleBody.addEventListener('input', function (e) {
+    if (e.target.id === 'qRate') {
+      Q.rate = e.target.value;
+      var r = parseNum(Q.rate), gi = document.getElementById('qGiven');
+      if (!Q.touched && r > 0 && gi) { Q.given = String(round2(Q.d.som / r)).replace('.', ','); gi.value = Q.given; }
+    } else if (e.target.id === 'qGiven') { Q.given = e.target.value; Q.touched = true; }
+    else if (e.target.id === 'qChange') { Q.change = e.target.value; Q.changeTouched = true; return refreshSettle(true); }
+    else return;
+    if (!Q.changeTouched) Q.change = '';
+    var was = !!document.querySelector('#qChangeBox .chips'), now = settleState().showChange;
+    refreshSettle(was === now && !now);
+  });
   el.recurBody.addEventListener('change', function (e) { if (e.target.id === 'rCat' && e.target.value) { recurPick(e.target.value); renderRecurSheet(); } });
   el.voiceBody.addEventListener('keydown', function (e) {
     if (e.target.id === 'cmdText' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.blur(); }
@@ -2374,7 +2659,7 @@ input, textarea { font: inherit; color: var(--ink); -webkit-user-select: text; u
     var vv = window.visualViewport;
     if (!vv) return;
     var open = window.innerHeight - vv.height > 120;
-    [el.sheet, el.voiceSheet, el.recurSheet].forEach(function (sh) {
+    [el.sheet, el.voiceSheet, el.recurSheet, el.settleSheet].forEach(function (sh) {
       sh.style.top = open ? Math.round(vv.offsetTop + 8) + 'px' : '';
       sh.style.bottom = open ? 'auto' : '';
       sh.style.maxHeight = open ? Math.round(vv.height - 16) + 'px' : '';

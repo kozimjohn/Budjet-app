@@ -10,6 +10,7 @@
  *   SHEET_ID         — sheet havolasidagi /d/ va /edit orasidagi qism (kodda saqlanmaydi, repo ochiq boʻlgani uchun)
  *   GEMINI_API_KEY   — ovozli kiritish uchun (aistudio.google.com/apikey, bepul). Kerak boʻlmasa qoʻymang.
  *   GEMINI_MODEL     — ixtiyoriy, standart: gemini-flash-latest
+ *   LENDERS          — ixtiyoriy: qarz olinadigan joylar, vergul bilan (ilovada tugma boʻlib chiqadi)
  *
  * Deploy → New deployment → Web app:
  *   Execute as: Me    Who has access: Anyone
@@ -30,7 +31,9 @@ var CFG = {
   UID_TTL_SEC: 6 * 3600,                            // bir yozuv ikki marta tushmasligi uchun (internet uzilsa)
   MAX_AUTH_AGE_SEC: 24 * 3600,
   GEMINI_MODEL: 'gemini-flash-latest',              // Script property GEMINI_MODEL bilan almashtirsa boʻladi
-  RECUR_PROP: 'RECURRING'                           // Script property: qoʻlda qoʻshilgan / olib tashlangan oylik toʻlovlar (JSON, ilova oʻzi yozadi)
+  RECUR_PROP: 'RECURRING',                          // Script property: qoʻlda qoʻshilgan / olib tashlangan oylik toʻlovlar (JSON, ilova oʻzi yozadi)
+  DEBT_MARK: 'QARZ: dollar hali berilmagan',        // soʻm tushgan, dollar keyin beriladigan almashtirish (izoh shu bilan boshlanadi)
+  LENDERS_PROP: 'LENDERS'                           // Script property: qarz olinadigan joylar, vergul bilan (masalan: Doʻkon A, Doʻkon B)
 };
 
 /* ================= HTTP ================= */
@@ -48,6 +51,7 @@ function doPost(e) {
     else if (req.action === 'update') out = update_(req.ref || {}, req.entry || {});
     else if (req.action === 'delete') out = delete_(req.ref || {});
     else if (req.action === 'recur') out = recur_(req);
+    else if (req.action === 'settle') out = settle_(req);
     else throw new Error('Nomaʼlum amal: ' + req.action);
     out.ok = true;
   } catch (err) {
@@ -170,6 +174,8 @@ function init_() {
     budgets: budgets_(ss),
     quick: quick,
     fixed: fixed_(outRows),
+    debts: debts_(outRows, tz),
+    lenders: lenders_(),
     recurring: recurring_(outRows, tz)
   };
 }
@@ -236,6 +242,106 @@ function fixed_(rows) {
     }
   });
   return out;
+}
+
+// Ochiq qarzlar: soʻm tushgan, dollari hali berilmagan almashtirishlar
+function debts_(rows, tz) {
+  return rows.filter(function (r) {
+    return String(r.values[1]) === CFG.EXCHANGE && String(r.values[5] || '').indexOf(CFG.DEBT_MARK) === 0;
+  }).map(function (r) {
+    var e = entry_('out', r, tz);
+    e.som = Math.round(num_(r.values[2]) * num_(r.values[4]) * 100) / 100;
+    var m = String(r.values[5]).match(/Kimdan: ([^·]+)/);
+    if (m) e.lender = m[1].trim();
+    return e;
+  });
+}
+
+// Qarzni yopish: berilgan dollar yoziladi, kurs = tushgan soʻm ÷ dollar (butun son), izohga kelishilgan kurs
+function settle_(req) {
+  var ss = openSheet_();
+  var tz = ss.getSpreadsheetTimeZone();
+  var ref = req.ref || {};
+  var given = Math.round(Number(req.given) * 100) / 100;
+  if (!(given > 0) || !isFinite(given)) throw new Error('Berilgan dollar summasini kiriting');
+  var change = Math.round(Number(req.change || 0) * 100) / 100;
+  var changeTo = String(req.changeTo || '');
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sh = ss.getSheetByName(CFG.OUT.name);
+    var row = Number(ref.row);
+    checkRow_(sh, CFG.OUT, row, ref, tz);
+    var v = sh.getRange(row, 1, 1, CFG.OUT.cols).getValues()[0];
+    var note = String(v[5] || '');
+    if (String(v[1]) !== CFG.EXCHANGE || note.indexOf(CFG.DEBT_MARK) !== 0) throw new Error('Bu qarz allaqachon yopilgan');
+    var som = Math.round(num_(v[2]) * num_(v[4]) * 100) / 100;
+    if (!(som > 0)) throw new Error('Qatordagi summa notoʻgʻri');
+    var agreed = Number(req.rate) > 0 ? Number(req.rate) : 0;
+    var rest = note.slice(CFG.DEBT_MARK.length).replace(/^\s*·\s*/, '');
+    var tail = rest ? ' · ' + rest : '';
+    var dd = Utilities.formatDate(new Date(), tz, 'dd.MM');
+    var vals = v.slice(), extra = null;
+
+    if (change > 0) {
+      // Ortiqcha dollar berildi, qaytimi soʻmda qaytarildi
+      if (!(agreed > 0)) throw new Error('Kelishilgan kursni kiriting');
+      var wallets = lists_(ss).wallets;
+      if (wallets.indexOf(changeTo) < 0 || isUsd_(changeTo)) throw new Error('Qaytim qaysi soʻm hamyonga tushganini tanlang');
+      var extraUsd = given - som / agreed;
+      if (!(extraUsd > 0.004)) throw new Error('Qaytim yoʻq: berilgan dollar qarzdan oshmaydi');
+      var mainNote = 'Qarz yopildi ' + dd + ', kurs ' + fmtNum_(agreed) + ', $' + fmtNum_(given) + ' berildi';
+      if (changeTo === String(v[6])) {
+        // Qaytim oʻsha hamyonga: bitta qator, kurs = (qarz + qaytim) ÷ dollar
+        vals[2] = given; vals[4] = Math.round((som + change) / given); vals[5] = mainNote + ', qaytim ' + fmtNum_(change) + tail;
+        sh.getRange(row, 3, 1, 4).setValues([[given, v[3], vals[4], vals[5]]]);
+      } else {
+        // Qarz qatori aniq qarz summasiga (soʻm ÷ kurs), qaytim shu dollardan alohida Exchange qatori
+        vals[2] = som / agreed; vals[4] = agreed; vals[5] = mainNote + tail;
+        sh.getRange(row, 3, 1, 4).setValues([['=' + som + '/' + agreed, v[3], agreed, vals[5]]]);
+        var exRate = Math.round(change / extraUsd);
+        var exRow = lastDataRow_(sh, CFG.OUT.firstRow) + 1;
+        if (exRow >= sh.getMaxRows()) sh.insertRowsBefore(sh.getMaxRows(), 300);
+        var today = Utilities.parseDate(Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd'), tz, 'yyyy-MM-dd');
+        var exNote = 'Qarz qaytimi ' + dd + ': ' + fmtNum_(change) + ' soʻm, kurs ' + fmtNum_(agreed) + tail;
+        sh.getRange(exRow, 1, 1, CFG.OUT.cols).setValues([[today, CFG.EXCHANGE, '=' + given + '-' + som + '/' + agreed, v[3], exRate, exNote, changeTo]]);
+        extra = entry_('out', { row: exRow, values: [today, CFG.EXCHANGE, extraUsd, v[3], exRate, exNote, changeTo] }, tz);
+      }
+    } else {
+      // Qaytim yoʻq: berilgan dollar butun qarzga ketdi, kurs = soʻm ÷ dollar
+      var rate = Math.round(som / given);
+      vals[2] = given; vals[4] = rate;
+      vals[5] = 'Qarz yopildi ' + dd + ', kurs ' + fmtNum_(agreed || rate) + tail;
+      sh.getRange(row, 3, 1, 4).setValues([[given, v[3], rate, vals[5]]]);
+    }
+    SpreadsheetApp.flush();
+    var outRows = readTail_(sh, CFG.OUT.firstRow, CFG.OUT.cols, CFG.HISTORY_ROWS);
+    return { saved: entry_('out', { row: row, values: vals }, tz), extra: extra, balances: balances_(ss), budgets: budgets_(ss), debts: debts_(outRows, tz) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Qarz olinadigan joylar: Script property LENDERS (vergul bilan yoki JSON roʻyxat), shu tartibda tugma boʻladi.
+// Nomlar kodda saqlanmaydi (repo ochiq). "Boshqa" orqali yozilgan nom faqat oʻsha yozuv izohiga tushadi.
+function lenders_() {
+  var raw = String(PropertiesService.getScriptProperties().getProperty(CFG.LENDERS_PROP) || '').trim();
+  if (!raw) return [];
+  var list;
+  try { list = JSON.parse(raw); } catch (e) { list = raw.split(/[,;\n]/); }
+  if (!Array.isArray(list)) list = [String(list)];
+  var out = [];
+  list.forEach(function (x) { var n = cleanLender_(x); if (n && out.indexOf(n) < 0) out.push(n); });
+  return out.slice(0, 8);
+}
+function cleanLender_(x) {
+  return String(x || '').replace(/[·\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim().replace(/^[=+\-@']+/, '').slice(0, 40);
+}
+
+// 11950 → "11 950", 11950.5 → "11 950,5" (izohlar uchun, oddiy boʻshliq bilan)
+function fmtNum_(n) {
+  var p = String(Math.round(n * 100) / 100).split('.');
+  return p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + (p[1] ? ',' + p[1] : '');
 }
 
 function recurPrefs_() {
@@ -311,11 +417,17 @@ function buildEntry_(ss, lists, tz, en) {
 
   var amountCell = amount;
   var expr = String(en.expr || '');
+  // Qarzga almashtirish: soʻm hozir tushdi, dollar keyin beriladi. C = soʻm ÷ taxminiy kurs (formula),
+  // shunda soʻm hamyonga aniq tushgan summa yoziladi; dollar berilganda settle_ qatorni toʻgʻrilaydi.
+  var debtSom = type === 'exchange' && rate > 0 && isUsd_(wallet) && !isUsd_(to) ? Math.round(Number(en.debtSom) * 100) / 100 : 0;
+  if (debtSom > 0) { amountCell = '=' + debtSom + '/' + rate; expr = ''; }
   if (/^\d+(\.\d+)?(\+\d+(\.\d+)?)+$/.test(expr)) {
     var sum = expr.split('+').reduce(function (s, x) { return s + Number(x); }, 0);
     if (Math.abs(sum - amount) < 0.005) amountCell = '=' + expr;   // sheetda "=733+105" koʻrinishida qoladi
   }
   var note = String(en.note || '').trim().slice(0, 300);
+  var lender = debtSom > 0 ? cleanLender_(en.lender) : '';
+  if (debtSom > 0) note = CFG.DEBT_MARK + (lender ? ' · Kimdan: ' + lender : '') + (note ? ' · ' + note : '');
   if (/^[=+\-@]/.test(note)) note = "'" + note;
 
   var conf = type === 'in' ? CFG.IN : CFG.OUT;
@@ -323,8 +435,9 @@ function buildEntry_(ss, lists, tz, en) {
   if (conf === CFG.OUT) vals.push(to);
   return {
     conf: conf, vals: vals,
-    saved: { sheet: type === 'in' ? 'in' : 'out', date: String(en.date), cat: cat, amount: amount,
-             wallet: wallet, to: to, rate: rate || null, note: note.replace(/^'/, '') }
+    saved: { sheet: type === 'in' ? 'in' : 'out', date: String(en.date), cat: cat, amount: debtSom > 0 ? debtSom / rate : amount,
+             wallet: wallet, to: to, rate: rate || null, note: note.replace(/^'/, ''), som: debtSom > 0 ? debtSom : undefined,
+             lender: lender || undefined }
   };
 }
 
@@ -348,7 +461,7 @@ function add_(en) {
     SpreadsheetApp.flush();
     b.saved.row = row;
     if (cache) cache.put('uid:' + uid, JSON.stringify(b.saved), CFG.UID_TTL_SEC);
-    return { saved: b.saved, balances: balances_(ss), budgets: budgets_(ss) };
+    return { saved: b.saved, balances: balances_(ss), budgets: budgets_(ss), lenders: lenders_() };
   } finally {
     lock.releaseLock();
   }

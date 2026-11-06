@@ -29,6 +29,14 @@ Ilova faqat A–G ustunlariga yozadi. H va undan keyingi formulali ustunlarga te
   - Hisob bankdagidek: yuboruvchi to'laydigan summa + komissiya = $ × kurs. Ya'ni kartaga $ × kurs ÷ (1 + foiz) tushadi. Chek bilan tekshirilgan: 1 195 000 ÷ 1,0075 = 1 186 104,22.
   - Sheetga bitta `Exchange` qatori yoziladi, kursi komissiya ayrilgan va **butun songa yaxlitlangan** holda (12 000 ÷ 1,011 = 11 869; 11 950 ÷ 1,0075 = 11 861). Card sum'ga $ × shu kurs tushadi, asl kurs va foiz izohda turadi.
   - **Aniq summa:** foiz boshqacha bo'lsa, chekdagi kartaga tushgan summani yozing (masalan, 1 186 104,22). Ilova kursni summa ÷ $ qilib yaxlitlaydi (11 861), foizni o'zi hisoblaydi. Izohga `Kurs 11 950, komissiya 0,75%, kartaga 1 186 104,22` yoziladi.
+- **Qarzga almashtirish (dollar keyin beriladi):** so'm kartaga hozir tushib, dollarni 1–2 kundan keyin kelishilgan kursda bersangiz.
+  - Almashtirish → Cash dollar → Card sum (yoki boshqa so'm hamyon) → **"Dollar keyin beriladi"**. **Kimdan** olinganini tanlaysiz: Script properties'dagi `LENDERS` (masalan, `Doʻkon A, Doʻkon B`) tugma bo'lib chiqadi, boshqa joy bo'lsa **"+ Boshqa"** bilan nomini yozasiz (repo ochiq bo'lgani uchun nomlar kodda saqlanmaydi; oxirgi tanlangani keyingi safar ham tanlangan turadi), tushgan so'm summasi va taxminiy kursni yozasiz. Izohga `Kimdan: …` ham yoziladi.
+  - Sheetga bitta `Exchange` qatori yoziladi: C = `=so'm/kurs` formulasi (so'm hamyonga aniq tushgan summa yoziladi, dollar hamyondan taxminiy summa band qilinadi), izoh `QARZ: dollar hali berilmagan` bilan boshlanadi.
+  - Sheetdagi dollar qoldig'ida band summa ayrilgan bo'ladi, ilovadagi hamyon kartasida esa qo'ldagi haqiqiy pul turadi, ostida "$100 band".
+  - Ilova tepasida **"Ochiq qarz"** eslatmasi turadi. **"Dollar berdim"** ni bosib kelishilgan kursni (va xohlasangiz aniq berilgan dollarni) yozasiz: o'sha qatorning o'zi to'g'rilanadi. C = berilgan dollar, E = so'm ÷ dollar (butun son), izoh `Qarz yopildi 08.11, kurs 11 900`. Yangi qator qo'shilmaydi.
+  - **Ortiqcha dollar bersangiz** (masalan, 2 000 000 qarzga 12 000 kursda $166,67 o'rniga $170): ilova ortiqchasini hisoblaydi (40 000 so'm) va qaytarildimi deb so'raydi.
+    - **Cash sum'ga / Card sum'ga** qaytarilsa: qarz qatori aniq qarz summasiga (`=2000000/12000`) to'g'rilanadi va qaytim uchun alohida `Exchange` qatori yoziladi (`=170-2000000/12000` → Cash sum'ga 40 000). Ikkalasi birga roppa-rosa $170. Qaytim o'sha karta(Card sum)ga tushsa, bitta qator kifoya.
+    - **Qaytarilmadi**: ortiqchasi kursga qo'shiladi (2 000 000 ÷ 170 = 11 765).
 - Kategoriya va hamyonlar ro'yxati `List of items` varag'idan olinadi. Yangi kategoriyani o'sha yerga qo'shsangiz, ilovada ham chiqadi.
 - "Bekor qilish" faqat eng oxirgi yozuvni o'chiradi, u ham faqat qator o'zgarmagan bo'lsa.
 - Outflow varag'ida bo'sh qator qolmasa, ilova oxirgi qatordan oldin 300 ta yangi qator qo'shadi. Shu tufayli formulalardagi diapazonlar ham kengayadi.
@@ -62,6 +70,7 @@ Sheetni tahrirlash huquqi bor Google akkaunt bilan bajaring.
    - `ALLOWED_USER_ID`: sizning Telegram ID raqamingiz (@userinfobot ko'rsatadi)
    - `SHEET_ID`: sheet havolasidagi `/d/` va `/edit` orasidagi uzun qism. Repo ochiq bo'lgani uchun kodga yozilmaydi.
    - `GEMINI_API_KEY`: ovoz bilan kiritish uchun (pastdagi bo'limga qarang)
+   - `LENDERS` (ixtiyoriy): qarz olinadigan joylar, vergul bilan, masalan `Doʻkon A, Doʻkon B`
 4. **Deploy → New deployment → Web app**:
    - Execute as: **Me**
    - Who has access: **Anyone**
