@@ -25,9 +25,29 @@ Ilova faqat A–G ustunlariga yozadi. H va undan keyingi formulali ustunlarga te
 
 - Yangi qator oxirgi yozuvdan keyingi birinchi bo'sh qatorga tushadi.
 - `733+105` deb kiritilgan summa sheetda `=733+105` formulasi bo'lib qoladi.
+- **Card sum'ga almashtirish komissiyasi:** Cash dollar → Card sum almashtirishda komissiya tanlanadi: **1,1%**, **1%**, **0,75%** yoki **Aniq summa**. Oxirgi ishlatilgan foiz keyingi safar ham tanlangan turadi.
+  - Hisob bankdagidek: yuboruvchi to'laydigan summa + komissiya = $ × kurs. Ya'ni kartaga $ × kurs ÷ (1 + foiz) tushadi. Chek bilan tekshirilgan: 1 195 000 ÷ 1,0075 = 1 186 104,22.
+  - Sheetga bitta `Exchange` qatori yoziladi, kursi komissiya ayrilgan va **butun songa yaxlitlangan** holda (12 000 ÷ 1,011 = 11 869; 11 950 ÷ 1,0075 = 11 861). Card sum'ga $ × shu kurs tushadi, asl kurs va foiz izohda turadi.
+  - **Aniq summa:** foiz boshqacha bo'lsa, chekdagi kartaga tushgan summani yozing (masalan, 1 186 104,22). Ilova kursni summa ÷ $ qilib yaxlitlaydi (11 861), foizni o'zi hisoblaydi. Izohga `Kurs 11 950, komissiya 0,75%, kartaga 1 186 104,22` yoziladi.
 - Kategoriya va hamyonlar ro'yxati `List of items` varag'idan olinadi. Yangi kategoriyani o'sha yerga qo'shsangiz, ilovada ham chiqadi.
 - "Bekor qilish" faqat eng oxirgi yozuvni o'chiradi, u ham faqat qator o'zgarmagan bo'lsa.
 - Outflow varag'ida bo'sh qator qolmasa, ilova oxirgi qatordan oldin 300 ta yangi qator qo'shadi. Shu tufayli formulalardagi diapazonlar ham kengayadi.
+
+## Ilovadagi qulayliklar
+
+- **Eski yozuvni tuzatish yoki o'chirish.** "Oxirgi yozuvlar"dagi istalgan qatorni bosing: u formaga ochiladi, yuqorida "Tahrirlanmoqda" paneli chiqadi.
+  - "O'zgarishni saqlash" qatorni sheetdagi o'z joyida qayta yozadi.
+  - "O'chirish" ikki marta bosiladi ("Ha, o'chirilsin"): faqat o'sha qatorning A–G ustunlari tozalanadi.
+  - Qator sheetda siz bilmagan holda o'zgargan bo'lsa, ilova unga tegmaydi va xabar beradi.
+  - Kirimni chiqimga (yoki aksincha) aylantirib bo'lmaydi: eskisini o'chirib, yangisini kiriting.
+- **Tez summalar.** Kategoriya tanlanganda siz unga eng ko'p yozgan 3 ta summa chiqadi (kamida 2 marta ishlatilgani). Bossangiz, summa va hamyon to'ldiriladi.
+- **Odatdagi summa.** Kategoriyaning oxirgi 10 ta yozuvidan kamida 8 tasi bir xil summa va hamyondan bo'lsa (masalan, har kungi Charity: Card sum'dan), kategoriyani bosishingiz bilan summa va hamyon o'zi yoziladi ("odatdagi summa"). Boshqa summa kerak bo'lsa, raqam tering: oldingisi o'rniga yoziladi.
+- **Oylik to'lovlar (eslatma).** Oxirgi 4 oyning kamida 3 tasida, oyiga 1–2 marta yozilgan to'lovlar (internet, bog'cha, mobil aloqa va h.k.) bu oy hali yozilmagan bo'lsa, odatdagi to'lov sanasi bilan ko'rinadi (masalan, "16-noyabr"). Sanasi o'tgani qizil ("kechikdi"), bugun–3 kun ichidagisi ajratib ko'rsatiladi, sarlavhada nechtasi kechikkani yoziladi. Bosilsa, o'tgan oydagi summa va hamyon bilan formaga tushadi. Odatdagi sana oxirgi oylardagi to'lov kunlarining o'rtachasi (mediana). Eng yaqin 4 tasi ko'rinadi, qolgani "Yana N ta" ostida.
+  - **"+ Qo'shish"** bilan istalgan oylik to'lovni (maktab, bog'cha, internet va boshqa) summa, hamyon va har oydagi sanasi bilan o'zingiz qo'shasiz; ro'yxatdagilarni × bilan olib tashlaysiz. Ro'yxat Apps Script'ning `RECURRING` property'sida saqlanadi (ilova o'zi yozadi), shuning uchun telefonda ham, kompyuterda ham bir xil.
+- **Chek rasmi yoki PDF.** Mikrofon oynasida "Chek rasmi yoki PDF" tugmasi bor: rasmni Gemini o'qiydi va yozuvni tekshirish uchun ko'rsatadi. Gemini kaliti kerak.
+- **Internet yo'q bo'lsa.** Yozuv telefonda navbatga qo'yiladi ("navbatda" belgisi bilan) va internet qaytgach o'zi yuboriladi. Ilovani yopib ochsangiz ham navbat saqlanib qoladi. Javob yo'qolib, yozuv qayta yuborilsa ham sheetga ikki marta yozilmaydi.
+- **Hamyonlar ixcham ko'rinadi:** doim Cash sum, Cash dollar, Card sum turadi, qolganlari (Visa, Master card) "Boshqa (2)" ni bosganda chiqadi. Yonida hammasining dollardagi jami summasi (so'mdagilar oxirgi kurs bo'yicha) turadi.
+- **"Oxirgi yozuvlar"** faqat Chiqim bo'limida ko'rinadi: oxirgi 10 ta yozuv (kirim va almashtirishlar ham). "Yashirish" bilan yig'ib qo'yish mumkin, telefon buni eslab qoladi.
 
 ## O'rnatish
 
@@ -37,7 +57,7 @@ Sheetni tahrirlash huquqi bor Google akkaunt bilan bajaring.
 
 1. [script.google.com](https://script.google.com) → **New project**. Botning Apps Script loyihasiga qo'shmang: ikkita `doPost` bir-biriga xalaqit beradi.
 2. `Code.gs` ichidagi hamma narsani nusxalab qo'ying va saqlang.
-3. **Project Settings → Script properties** ga ikkita qiymat qo'shing:
+3. **Project Settings → Script properties** ga quyidagi qiymatlarni qo'shing:
    - `BOT_TOKEN`: @BotFather → /mybots → bot → API Token
    - `ALLOWED_USER_ID`: sizning Telegram ID raqamingiz (@userinfobot ko'rsatadi)
    - `SHEET_ID`: sheet havolasidagi `/d/` va `/edit` orasidagi uzun qism. Repo ochiq bo'lgani uchun kodga yozilmaydi.
@@ -79,7 +99,7 @@ Kalit olish:
 2. Kalitni Apps Script → Project Settings → Script properties ga `GEMINI_API_KEY` nomi bilan qo'ying.
 3. Model: standart `gemini-flash-latest`. Google uni almashtirsa yoki xato bersa, `GEMINI_MODEL` property'siga boshqa model nomini yozing.
 
-Maxfiylik: ovoz yozuvi (60 soniyagacha) va kategoriyalar ro'yxati tahlil uchun Google'ga yuboriladi. Bepul tarifda Google bu ma'lumotlardan o'z mahsulotlarini yaxshilash uchun foydalanishi mumkin. Buni istamasangiz, AI Studio'da billing'ni yoqing (pullik tarif), yoki kalitni qo'ymang: shunda ovoz tugmasi xato ko'rsatadi, qolgan hammasi ishlayveradi.
+Maxfiylik: ovoz yozuvi (60 soniyagacha) yoki chek rasmi, hamda kategoriyalar ro'yxati tahlil uchun Google'ga yuboriladi. Bepul tarifda Google bu ma'lumotlardan o'z mahsulotlarini yaxshilash uchun foydalanishi mumkin. Buni istamasangiz, AI Studio'da billing'ni yoqing (pullik tarif), yoki kalitni qo'ymang: shunda ovoz tugmasi xato ko'rsatadi, qolgan hammasi ishlayveradi.
 
 Telegram mikrofonga birinchi marta ruxsat so'raydi. Rad etilgan bo'lsa, telefon sozlamalarida Telegram uchun mikrofonni yoqing.
 

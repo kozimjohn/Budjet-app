@@ -24,10 +24,13 @@ var CFG = {
   RATE_COL: 12,                                     // Outflow L: sheet hisoblagan joriy kurs
   USD_WALLETS: ['Cash dollar', 'Visa', 'Master card'],
   EXCHANGE: 'Exchange',
-  HISTORY_ROWS: 800,                                // statistika uchun oxirgi qatorlar
-  RECENT: 8,
+  HISTORY_ROWS: 1500,                               // statistika uchun oxirgi qatorlar (~5 oy)
+  RECENT: 15,
+  BUDGET_RANGE: 'M2:P5',                            // Inflow: byudjet turi · Income · Spent · Balance ($)
+  UID_TTL_SEC: 6 * 3600,                            // bir yozuv ikki marta tushmasligi uchun (internet uzilsa)
   MAX_AUTH_AGE_SEC: 24 * 3600,
-  GEMINI_MODEL: 'gemini-flash-latest'               // Script property GEMINI_MODEL bilan almashtirsa boʻladi
+  GEMINI_MODEL: 'gemini-flash-latest',              // Script property GEMINI_MODEL bilan almashtirsa boʻladi
+  RECUR_PROP: 'RECURRING'                           // Script property: qoʻlda qoʻshilgan / olib tashlangan oylik toʻlovlar (JSON, ilova oʻzi yozadi)
 };
 
 /* ================= HTTP ================= */
@@ -40,7 +43,11 @@ function doPost(e) {
     if (req.action === 'init') out = init_();
     else if (req.action === 'add') out = add_(req.entry || {});
     else if (req.action === 'undo') out = undo_(req.ref || {});
-    else if (req.action === 'voice') out = voice_(req);
+    else if (req.action === 'voice') out = ai_(req, 'voice');
+    else if (req.action === 'receipt') out = ai_(req, 'receipt');
+    else if (req.action === 'update') out = update_(req.ref || {}, req.entry || {});
+    else if (req.action === 'delete') out = delete_(req.ref || {});
+    else if (req.action === 'recur') out = recur_(req);
     else throw new Error('Nomaʼlum amal: ' + req.action);
     out.ok = true;
   } catch (err) {
@@ -115,6 +122,27 @@ function init_() {
     count_(usage.in, cat); count_(walletUse.in, wallet); countNested_(catWallet.in, cat, wallet);
   });
 
+  // Tez summalar: har kategoriyada eng koʻp takrorlangan summa + hamyon (kamida 2 marta)
+  var quick = { out: {}, in: {} };
+  [['out', outRows], ['in', inRows]].forEach(function (pair) {
+    var acc = {};
+    pair[1].forEach(function (r, i) {
+      var v = r.values, cat = String(v[1] || ''), a = num_(v[2]), w = String(v[3] || '');
+      if (!cat || cat === CFG.EXCHANGE || !(a > 0) || !w) return;
+      var k = a + '|' + w;
+      acc[cat] = acc[cat] || {};
+      acc[cat][k] = acc[cat][k] || { a: a, w: w, n: 0, last: 0 };
+      acc[cat][k].n++; acc[cat][k].last = i;
+    });
+    Object.keys(acc).forEach(function (cat) {
+      var list = Object.keys(acc[cat]).map(function (k) { return acc[cat][k]; })
+        .filter(function (x) { return x.n >= 2; })
+        .sort(function (x, y) { return y.n - x.n || y.last - x.last; }).slice(0, 3)
+        .map(function (x) { return { a: x.a, w: x.w }; });
+      if (list.length) quick[pair[0]][cat] = list;
+    });
+  });
+
   var favWallet = { out: {}, in: {} };
   ['out', 'in'].forEach(function (m) {
     Object.keys(catWallet[m]).forEach(function (c) { favWallet[m][c] = top_(catWallet[m][c]); });
@@ -138,14 +166,121 @@ function init_() {
     exPair: pair ? pair.split('>') : null,
     lastRate: currentRate_(outSh),
     pairRate: pairRate,
-    recent: recent
+    recent: recent,
+    budgets: budgets_(ss),
+    quick: quick,
+    fixed: fixed_(outRows),
+    recurring: recurring_(outRows, tz)
   };
 }
 
-function add_(en) {
-  var ss = openSheet_();
-  var tz = ss.getSpreadsheetTimeZone();
-  var lists = lists_(ss);
+// Har oy (oyiga 1–2 marta) toʻlanadiganlar: oxirgi 4 oyning kamida 3 tasida bor boʻlganlar
+function recurring_(rows, tz) {
+  var cur = Utilities.formatDate(new Date(), tz, 'yyyy-MM');
+  var y = Number(cur.slice(0, 4)), m = Number(cur.slice(5, 7)), months = [];
+  for (var i = 1; i <= 4; i++) {
+    var mm = m - i, yy = y;
+    while (mm <= 0) { mm += 12; yy--; }
+    months.push(yy + '-' + (mm < 10 ? '0' : '') + mm);
+  }
+  var by = {};
+  rows.forEach(function (r) {
+    var v = r.values, cat = String(v[1] || '');
+    if (!cat || cat === CFG.EXCHANGE || !(v[0] instanceof Date)) return;
+    var mk = Utilities.formatDate(v[0], tz, 'yyyy-MM');
+    var o = by[cat] = by[cat] || { months: {}, inWindow: 0, last: null, days: [] };
+    o.months[mk] = (o.months[mk] || 0) + 1;
+    if (months.indexOf(mk) >= 0) { o.inWindow++; o.days.push(Number(Utilities.formatDate(v[0], tz, 'd'))); }
+    o.last = { amount: num_(v[2]), wallet: String(v[3] || ''), date: Utilities.formatDate(v[0], tz, 'yyyy-MM-dd') };
+  });
+  var out = [];
+  Object.keys(by).forEach(function (cat) {
+    var o = by[cat], present = months.filter(function (k) { return o.months[k]; }).length;
+    if (present < 3 || o.inWindow / present > 2.5) return;
+    // Odatdagi toʻlov kuni: oxirgi oylardagi kunlarning medianasi
+    var d = o.days.slice().sort(function (a, b) { return a - b; }), day = d.length ? d[Math.floor((d.length - 1) / 2)] : Number(o.last.date.slice(8));
+    out.push({ cat: cat, amount: o.last.amount, wallet: o.last.wallet, lastDate: o.last.date, day: day, paid: !!o.months[cur] });
+  });
+  // Ilovada qoʻlda qoʻshilganlari (maktab, bogʻcha…) va olib tashlanganlari
+  var pref = recurPrefs_(), mine = {};
+  pref.add.forEach(function (a) { mine[a.cat] = 1; });
+  out = out.filter(function (x) { return !mine[x.cat] && pref.hide.indexOf(x.cat) < 0; });
+  pref.add.forEach(function (a) {
+    var o = by[a.cat];
+    out.push({ cat: a.cat, amount: a.amount, wallet: a.wallet, day: a.day, lastDate: o && o.last ? o.last.date : '',
+      paid: !!(o && o.months[cur]), manual: true });
+  });
+  // Muddati oldinroq keladigani birinchi
+  return out.sort(function (a, b) { return a.day - b.day || (a.cat < b.cat ? -1 : 1); });
+}
+
+// Doim bir xil summa va hamyondan toʻlanadigan kategoriyalar (masalan, har kungi xayriya):
+// oxirgi 10 ta yozuvning kamida 80 foizi bir xil boʻlsa, ilova kategoriya bosilganda shu summani oʻzi yozadi
+function fixed_(rows) {
+  var by = {};
+  rows.forEach(function (r) {
+    var v = r.values, cat = String(v[1] || ''), a = num_(v[2]);
+    if (!cat || cat === CFG.EXCHANGE || !(a > 0)) return;
+    (by[cat] = by[cat] || []).push(a + '|' + String(v[3] || ''));
+  });
+  var out = {};
+  Object.keys(by).forEach(function (cat) {
+    var last = by[cat].slice(-10);
+    if (last.length < 4) return;
+    var cnt = {};
+    last.forEach(function (k) { cnt[k] = (cnt[k] || 0) + 1; });
+    var top = Object.keys(cnt).sort(function (a, b) { return cnt[b] - cnt[a]; })[0];
+    if (cnt[top] >= Math.ceil(last.length * 0.8)) {
+      var p = top.split('|');
+      out[cat] = { a: Number(p[0]), w: p.slice(1).join('|') };
+    }
+  });
+  return out;
+}
+
+function recurPrefs_() {
+  try {
+    var j = JSON.parse(PropertiesService.getScriptProperties().getProperty(CFG.RECUR_PROP) || '{}');
+    return { add: j.add || [], hide: j.hide || [] };
+  } catch (e) { return { add: [], hide: [] }; }
+}
+
+// Oylik toʻlovni eslatmaga qoʻshish (op: add) yoki eslatmadan olib tashlash (op: remove)
+function recur_(req) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var ss = openSheet_(), tz = ss.getSpreadsheetTimeZone(), lists = lists_(ss);
+    var cat = String(req.cat || '');
+    var names = lists.outCats.map(function (c) { return c.name; });
+    if (!cat || cat === CFG.EXCHANGE || names.indexOf(cat) < 0) throw new Error('Kategoriya topilmadi: ' + cat);
+    var pref = recurPrefs_();
+    pref.add = pref.add.filter(function (a) { return a.cat !== cat; });
+    pref.hide = pref.hide.filter(function (h) { return h !== cat; });
+    if (req.op === 'add') {
+      var amount = Math.round(Number(req.amount) * 100) / 100, wallet = String(req.wallet || ''), day = Math.round(Number(req.day));
+      if (!(amount > 0) || !isFinite(amount)) throw new Error('Summa notoʻgʻri');
+      if (lists.wallets.indexOf(wallet) < 0) throw new Error('Hamyon topilmadi: ' + wallet);
+      if (!(day >= 1 && day <= 31)) throw new Error('Sana 1 dan 31 gacha boʻlsin');
+      pref.add.push({ cat: cat, amount: amount, wallet: wallet, day: day });
+    } else if (req.op === 'remove') pref.hide.push(cat);
+    else throw new Error('Amal notoʻgʻri');
+    PropertiesService.getScriptProperties().setProperty(CFG.RECUR_PROP, JSON.stringify(pref));
+    var rows = readTail_(ss.getSheetByName(CFG.OUT.name), CFG.OUT.firstRow, CFG.OUT.cols, CFG.HISTORY_ROWS);
+    return { recurring: recurring_(rows, tz) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function budgets_(ss) {
+  var v = ss.getSheetByName(CFG.IN.name).getRange(CFG.BUDGET_RANGE).getValues();
+  return v.filter(function (r) { return r[0] !== '' && r[0] !== null; })
+    .map(function (r) { return { name: String(r[0]).trim(), income: num_(r[1]), spent: num_(r[2]), balance: num_(r[3]) }; });
+}
+
+// Yozuvni tekshiradi va sheet qatoriga aylantiradi (add va update ikkalasi ishlatadi)
+function buildEntry_(ss, lists, tz, en) {
   var type = String(en.type || '');
   var wallet = String(en.wallet || '');
   if (['out', 'in', 'exchange'].indexOf(type) < 0) throw new Error('Yozuv turi notoʻgʻri');
@@ -184,24 +319,88 @@ function add_(en) {
   if (/^[=+\-@]/.test(note)) note = "'" + note;
 
   var conf = type === 'in' ? CFG.IN : CFG.OUT;
+  var vals = [Utilities.parseDate(String(en.date), tz, 'yyyy-MM-dd'), cat, amountCell, wallet, rate, note];
+  if (conf === CFG.OUT) vals.push(to);
+  return {
+    conf: conf, vals: vals,
+    saved: { sheet: type === 'in' ? 'in' : 'out', date: String(en.date), cat: cat, amount: amount,
+             wallet: wallet, to: to, rate: rate || null, note: note.replace(/^'/, '') }
+  };
+}
+
+function add_(en) {
+  var ss = openSheet_();
+  var tz = ss.getSpreadsheetTimeZone();
+  var b = buildEntry_(ss, lists_(ss), tz, en);
+  var uid = String(en.uid || '').replace(/[^\w-]/g, '').slice(0, 64);
+  var cache = uid ? CacheService.getScriptCache() : null;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    // Internet uzilib, ilova qayta yuborsa: shu yozuv allaqachon tushgan boʻlsa, qaytadan yozmaymiz
+    var seen = cache && cache.get('uid:' + uid);
+    if (seen) return { saved: JSON.parse(seen), balances: balances_(ss), budgets: budgets_(ss), duplicate: true };
+    var sh = ss.getSheetByName(b.conf.name);
+    var row = lastDataRow_(sh, b.conf.firstRow) + 1;
+    // Varaq oxiriga yetsa, oxirgi qatordan OLDIN qator qoʻshamiz: formulalardagi diapazonlar ham kengayadi.
+    if (row >= sh.getMaxRows()) sh.insertRowsBefore(sh.getMaxRows(), 300);
+    sh.getRange(row, 1, 1, b.vals.length).setValues([b.vals]);
+    SpreadsheetApp.flush();
+    b.saved.row = row;
+    if (cache) cache.put('uid:' + uid, JSON.stringify(b.saved), CFG.UID_TTL_SEC);
+    return { saved: b.saved, balances: balances_(ss), budgets: budgets_(ss) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Ilovadagi eski yozuvni tahrirlash: qator ilova koʻrgan holatda boʻlsagina oʻzgartiriladi
+function update_(ref, en) {
+  var ss = openSheet_();
+  var tz = ss.getSpreadsheetTimeZone();
+  var conf = ref.sheet === 'in' ? CFG.IN : CFG.OUT;
+  if ((String(en.type) === 'in') !== (conf === CFG.IN)) throw new Error('Kirim va chiqim turini almashtirib boʻlmaydi');
+  var b = buildEntry_(ss, lists_(ss), tz, en);
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
     var sh = ss.getSheetByName(conf.name);
-    var row = lastDataRow_(sh, conf.firstRow) + 1;
-    // Varaq oxiriga yetsa, oxirgi qatordan OLDIN qator qoʻshamiz: formulalardagi diapazonlar ham kengayadi.
-    if (row >= sh.getMaxRows()) sh.insertRowsBefore(sh.getMaxRows(), 300);
-    var vals = [Utilities.parseDate(String(en.date), tz, 'yyyy-MM-dd'), cat, amountCell, wallet, rate, note];
-    if (conf === CFG.OUT) vals.push(to);
-    sh.getRange(row, 1, 1, vals.length).setValues([vals]);
+    var row = Number(ref.row);
+    checkRow_(sh, conf, row, ref, tz);
+    sh.getRange(row, 1, 1, b.vals.length).setValues([b.vals]);
     SpreadsheetApp.flush();
-    return {
-      saved: { sheet: type === 'in' ? 'in' : 'out', row: row, date: String(en.date), cat: cat, amount: amount,
-               wallet: wallet, to: to, rate: rate || null, note: note.replace(/^'/, '') },
-      balances: balances_(ss)
-    };
+    b.saved.row = row;
+    return { saved: b.saved, balances: balances_(ss), budgets: budgets_(ss) };
   } finally {
     lock.releaseLock();
+  }
+}
+
+// Istalgan yozuvni oʻchirish (qatorning A–G kataklari tozalanadi, formulalarga tegilmaydi)
+function delete_(ref) {
+  var ss = openSheet_();
+  var tz = ss.getSpreadsheetTimeZone();
+  var conf = ref.sheet === 'in' ? CFG.IN : CFG.OUT;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sh = ss.getSheetByName(conf.name);
+    var row = Number(ref.row);
+    checkRow_(sh, conf, row, ref, tz);
+    sh.getRange(row, 1, 1, conf.cols).clearContent();
+    SpreadsheetApp.flush();
+    return { balances: balances_(ss), budgets: budgets_(ss) };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function checkRow_(sh, conf, row, ref, tz) {
+  if (!(row >= conf.firstRow) || row > sh.getMaxRows()) throw new Error('Qator topilmadi');
+  var v = sh.getRange(row, 1, 1, conf.cols).getValues()[0];
+  var date = v[0] instanceof Date ? Utilities.formatDate(v[0], tz, 'yyyy-MM-dd') : String(v[0]);
+  if (String(v[1]) !== String(ref.cat) || Math.abs(num_(v[2]) - Number(ref.amount)) > 0.005 || (ref.date && date !== String(ref.date))) {
+    throw new Error('Bu qator sheetda oʻzgargan. Ilovani yopib, qayta oching.');
   }
 }
 
@@ -221,7 +420,7 @@ function undo_(ref) {
     }
     range.clearContent();
     SpreadsheetApp.flush();
-    return { balances: balances_(ss) };
+    return { balances: balances_(ss), budgets: budgets_(ss) };
   } finally {
     lock.releaseLock();
   }
@@ -233,14 +432,19 @@ function undo_(ref) {
  * Script Properties: GEMINI_API_KEY (aistudio.google.com/apikey), ixtiyoriy GEMINI_MODEL.
  */
 
-function voice_(req) {
+function ai_(req, kind) {
   var props = PropertiesService.getScriptProperties();
   var key = props.getProperty('GEMINI_API_KEY');
-  if (!key) throw new Error('Ovoz uchun Apps Script’da GEMINI_API_KEY sozlanmagan');
+  if (!key) throw new Error((kind === 'receipt' ? 'Chek' : 'Ovoz') + ' uchun Apps Script’da GEMINI_API_KEY sozlanmagan');
   var model = props.getProperty('GEMINI_MODEL') || CFG.GEMINI_MODEL;
-  var audio = String(req.audio || '');
-  if (!audio || audio.length > 8 * 1024 * 1024 || !/^[A-Za-z0-9+/=]+$/.test(audio)) throw new Error('Ovoz yozuvi notoʻgʻri yoki juda uzun');
-  var mime = /^audio\/[\w.+-]+$/.test(String(req.mime)) ? String(req.mime) : 'audio/wav';
+  var audio = String(kind === 'receipt' ? req.data || '' : req.audio || '');
+  if (!audio || audio.length > 10 * 1024 * 1024 || !/^[A-Za-z0-9+/=]+$/.test(audio)) {
+    throw new Error(kind === 'receipt' ? 'Fayl notoʻgʻri yoki juda katta' : 'Ovoz yozuvi notoʻgʻri yoki juda uzun');
+  }
+  var mime = String(req.mime || '');
+  if (kind === 'receipt') {
+    if (!/^(image\/(jpeg|png|webp|heic|heif)|application\/pdf)$/.test(mime)) throw new Error('Rasm yoki PDF yuboring');
+  } else if (!/^audio\/[\w.+-]+$/.test(mime)) mime = 'audio/wav';
 
   var ss = openSheet_();
   var tz = ss.getSpreadsheetTimeZone();
@@ -254,7 +458,7 @@ function voice_(req) {
   var body = {
     contents: [{ role: 'user', parts: [
       { inlineData: { mimeType: mime, data: audio } },
-      { text: voicePrompt_(today, Utilities.formatDate(now, tz, 'EEEE'), rate, lists.wallets, outNames, inNames) }
+      { text: voicePrompt_(today, Utilities.formatDate(now, tz, 'EEEE'), rate, lists.wallets, outNames, inNames, kind) }
     ] }],
     generationConfig: {
       temperature: 0,
@@ -296,10 +500,22 @@ function voice_(req) {
   return { transcript: String(parsed.transcript || '').slice(0, 1000), entries: entries };
 }
 
-function voicePrompt_(today, weekday, rate, wallets, outNames, inNames) {
-  return [
+function voicePrompt_(today, weekday, rate, wallets, outNames, inNames, kind) {
+  var intro = kind === 'receipt' ? [
+    'You read a photo, screenshot or PDF of a payment receipt, card-to-card transfer, bill or shop check',
+    'and turn it into personal-finance entries for a Google Sheet. Texts may be in Uzbek, Russian or English.',
+    'Receipt rules:',
+    '- One entry per payment shown. amount = the total that left the payer\'s account (including commission).',
+    '- Card payments and transfers in soʻm → wallet "Card sum"; cash checks → "Cash sum"; USD card → "Visa" or "Master card".',
+    '- Money received (incoming transfer, refund, salary) → type "in".',
+    '- date = the date printed on the receipt; note = shop or recipient name, short.',
+    '- transcript = one short line in Uzbek Latin: who was paid, total, date.',
+    ''
+  ] : [
     'You turn a short voice note into personal-finance entries for a Google Sheet.',
-    'The speaker talks in Uzbek (Latin or Cyrillic), sometimes mixed with Russian or English words.',
+    'The speaker talks in Uzbek (Latin or Cyrillic), sometimes mixed with Russian or English words.'
+  ];
+  return intro.concat([
     'Today is ' + today + ' (' + weekday + '). Current exchange rate: 1 USD = ' + rate + ' UZS (soʻm).',
     '',
     'Wallets (use the exact names):',
@@ -336,7 +552,7 @@ function voicePrompt_(today, weekday, rate, wallets, outNames, inNames) {
     '',
     'OUT categories: ' + JSON.stringify(outNames),
     'IN categories: ' + JSON.stringify(inNames)
-  ].join('\n');
+  ]).join('\n');
 }
 
 function voiceSchema_(wallets, cats) {
